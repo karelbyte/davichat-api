@@ -1,0 +1,14 @@
+REDIS_URL=redis://localhost:6379
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+AWS_ACCESS_KEY_ID=key
+AWS_SECRET_ACCESS_KEY=key
+AWS_REGION=us-east-1
+DYNAMODB_ENDPOINT=http://localhost:8000
+
+PORT=3000
+NODE_ENV=development
+
+SOCKET_CORS_ORIGIN=http://localhost:3000
