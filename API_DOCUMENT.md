@@ -216,6 +216,7 @@ src/
 
 #### Servidor → Cliente
 - user_status_update
+- user_connected (nuevo usuario conectado)
 - user_joined/user_left
 - message_received
 - typing_indicator
@@ -227,7 +228,7 @@ src/
 
 ### Funcionalidades Implementadas
 - Sistema de chat en tiempo real
-- Conversaciones privadas (1 a 1)
+- Conversaciones privadas (1 a 1) con persistencia
 - Grupos (1 a N)
 - Crear grupos y añadir participantes
 - Mensajes no leídos con notificaciones
@@ -239,6 +240,7 @@ src/
 - Persistencia dual: Redis (cache) + DynamoDB (persistencia)
 - Creación automática de tablas DynamoDB
 - Escalabilidad con Redis Adapter
+- Notificaciones en tiempo real de nuevos usuarios conectados
 
 ### Arquitectura de Datos
 
@@ -255,6 +257,26 @@ src/
   - Cache de datos frecuentemente accedidos
   - Gestión de sesiones activas
   - Mejora velocidad de respuesta
+
+#### Sistema de Notificaciones
+- **Backend**: Envía eventos a todos los participantes online
+- **Frontend**: Filtra eventos basado en conversación actual
+- **Badges**: Contadores en memoria del cliente
+- **Limpieza**: Automática al interactuar con conversaciones
+
+### Funcionalidad de Conversaciones Privadas
+
+#### Persistencia de Conversaciones
+- **Búsqueda automática**: Al crear una conversación privada, el sistema busca si ya existe una conversación entre los dos usuarios
+- **Conversación única**: Si existe, retorna la conversación existente con todo el historial
+- **Nueva conversación**: Si no existe, crea una nueva conversación
+- **Historial preservado**: Todos los mensajes se mantienen en la misma conversación entre sesiones
+
+#### Flujo de Creación
+1. Usuario A hace clic en "Chat" con Usuario B
+2. Sistema busca conversación privada existente entre A y B
+3. Si existe → retorna conversación existente con historial completo
+4. Si no existe → crea nueva conversación
 
 ### Endpoints REST Implementados
 
@@ -327,7 +349,11 @@ socket.on('disconnect', () => {
 ### Eventos de Usuario
 ```javascript
 // Unirse al chat
-socket.emit('user_join', { userId: 'user_id' });
+socket.emit('user_join', { 
+  userId: 'user_id',
+  name: 'Juan Pérez',
+  email: 'juan@example.com'
+});
 
 // Salir del chat
 socket.emit('user_leave', { userId: 'user_id' });
@@ -338,6 +364,13 @@ socket.emit('user_status', { userId: 'user_id', status: 'online' });
 // Escuchar cambios de estado
 socket.on('user_status_update', (data) => {
   console.log('Estado actualizado:', data);
+});
+
+// Escuchar nuevos usuarios conectados
+socket.on('user_connected', (data) => {
+  console.log('Nuevo usuario conectado:', data);
+  // Recargar lista de usuarios
+  loadUsers();
 });
 ```
 
@@ -397,17 +430,34 @@ socket.on('typing_indicator', (data) => {
 ```
 
 ### Mensajes No Leídos
+
+#### Badges de Mensajes No Leídos
+- **Badges en usuarios**: Contador de mensajes no leídos junto al nombre del usuario
+- **Actualización automática**: Se incrementa cuando llegan mensajes de usuarios no visibles
+- **Limpieza automática**: Se resetea cuando se hace clic en el chat del usuario
+- **Interfaz intuitiva**: Badge rojo con número de mensajes no leídos
+- **Lógica inteligente**: No muestra badges si el usuario está en la conversación activa
 ```javascript
 // Escuchar mensajes no leídos privados
 socket.on('unread_message_private', (data) => {
-  console.log('Mensaje privado no leído:', data);
-  // Mostrar notificación
+  // Verificar si está en la conversación actual
+  if (currentConversation && currentConversation.id === data.conversationId) {
+    return; // No mostrar badge si está en la conversación activa
+  }
+  // Incrementar contador de mensajes no leídos
+  unreadCounts[data.senderId] = (unreadCounts[data.senderId] || 0) + 1;
+  renderUsers(); // Actualizar interfaz
 });
 
 // Escuchar mensajes no leídos de grupo
 socket.on('unread_message_group', (data) => {
-  console.log('Mensaje de grupo no leído:', data);
-  // Mostrar notificación
+  // Verificar si está en la conversación actual
+  if (currentConversation && currentConversation.id === data.conversationId) {
+    return; // No mostrar badge si está en la conversación activa
+  }
+  // Incrementar contador de mensajes no leídos
+  unreadCounts[data.senderId] = (unreadCounts[data.senderId] || 0) + 1;
+  renderUsers(); // Actualizar interfaz
 });
 
 // Marcar mensajes como leídos
@@ -449,6 +499,62 @@ socket.on('user_added_to_group', (data) => {
   // Actualizar lista de grupos
 });
 ```
+
+### Estrategias de Implementación de Alertas
+
+#### 1. **Sistema de Badges Inteligente**
+```javascript
+// Variable global para rastrear mensajes no leídos
+let unreadCounts = {};
+
+// Función para renderizar usuarios con badges
+function renderUsers() {
+  users.forEach(user => {
+    const unreadCount = unreadCounts[user.id] || 0;
+    // Mostrar badge solo si hay mensajes no leídos
+    const badge = unreadCount > 0 ? 
+      `<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full">${unreadCount}</span>` : '';
+  });
+}
+```
+
+#### 2. **Lógica de Filtrado en Frontend**
+```javascript
+// Verificar conversación actual antes de mostrar badge
+socket.on('unread_message_private', (data) => {
+  if (currentConversation && currentConversation.id === data.conversationId) {
+    return; // No mostrar badge si está en la conversación activa
+  }
+  unreadCounts[data.senderId] = (unreadCounts[data.senderId] || 0) + 1;
+  renderUsers();
+});
+```
+
+#### 3. **Limpieza Automática de Badges**
+```javascript
+// Limpiar badge al hacer clic en chat
+function startPrivateChat(otherUserId) {
+  unreadCounts[otherUserId] = 0;
+  renderUsers();
+  // ... resto de la lógica
+}
+
+// Limpiar badges al unirse a conversación
+function joinConversation(conversation) {
+  conversation.participants.forEach(participantId => {
+    if (participantId !== currentUser.id) {
+      unreadCounts[participantId] = 0;
+    }
+  });
+  renderUsers();
+}
+```
+
+#### 4. **Ventajas de esta Estrategia**
+- **Simplicidad**: Lógica en frontend es más confiable que en backend
+- **Rendimiento**: No requiere búsquedas complejas en Socket.IO
+- **Flexibilidad**: Fácil de modificar y extender
+- **UX**: Badges aparecen/desaparecen instantáneamente
 
 ### API REST con Axios
 ```javascript

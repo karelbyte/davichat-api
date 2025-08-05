@@ -58,6 +58,17 @@ export class DynamoDBService implements OnModuleInit {
           { AttributeName: 'conversationId', AttributeType: 'S' },
           { AttributeName: 'userId', AttributeType: 'S' },
         ],
+        globalSecondaryIndexes: [
+          {
+            IndexName: 'userId-index',
+            KeySchema: [
+              { AttributeName: 'userId', KeyType: 'HASH' },
+            ],
+            Projection: {
+              ProjectionType: 'ALL',
+            },
+          },
+        ],
       },
       {
         name: 'messages',
@@ -88,6 +99,7 @@ export class DynamoDBService implements OnModuleInit {
           TableName: tableConfig.name,
           KeySchema: tableConfig.keySchema,
           AttributeDefinitions: tableConfig.attributeDefinitions,
+          GlobalSecondaryIndexes: tableConfig.globalSecondaryIndexes,
           BillingMode: 'PAY_PER_REQUEST',
         });
         await this.dynamoClient.send(createCommand);
@@ -216,9 +228,9 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async getConversationMessages(conversationId: string): Promise<any[]> {
-    const command = new QueryCommand({
+    const command = new ScanCommand({
       TableName: 'messages',
-      KeyConditionExpression: 'conversationId = :conversationId',
+      FilterExpression: 'conversationId = :conversationId',
       ExpressionAttributeValues: {
         ':conversationId': conversationId,
       },
@@ -249,23 +261,71 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async getUserConversations(userId: string): Promise<any[]> {
-    const command = new QueryCommand({
-      TableName: 'conversation_participants',
-      KeyConditionExpression: 'userId = :userId',
-      ExpressionAttributeValues: {
-        ':userId': userId,
-      },
-    });
-    const result = await this.client.send(command);
-    const conversations = [];
-    
-    for (const participant of result.Items || []) {
-      const conversation = await this.getConversation(participant.conversationId);
-      if (conversation) {
-        conversations.push(conversation);
+    try {
+      // Try to use GSI first
+      const command = new QueryCommand({
+        TableName: 'conversation_participants',
+        IndexName: 'userId-index',
+        KeyConditionExpression: 'userId = :userId',
+        ExpressionAttributeValues: {
+          ':userId': userId,
+        },
+      });
+      const result = await this.client.send(command);
+      const conversations: any[] = [];
+      
+      for (const participant of result.Items || []) {
+        const conversation = await this.getConversation(participant.conversationId);
+        if (conversation) {
+          conversations.push(conversation);
+        }
       }
+      
+      return conversations;
+    } catch (error) {
+      // If GSI doesn't exist, use Scan as fallback
+      const scanCommand = new ScanCommand({
+        TableName: 'conversation_participants',
+        FilterExpression: 'userId = :userId',
+        ExpressionAttributeValues: {
+          ':userId': userId,
+        },
+      });
+      const result = await this.client.send(scanCommand);
+      const conversations: any[] = [];
+      
+      for (const participant of result.Items || []) {
+        const conversation = await this.getConversation(participant.conversationId);
+        if (conversation) {
+          conversations.push(conversation);
+        }
+      }
+      
+      return conversations;
     }
-    
-    return conversations;
+  }
+
+  async findPrivateConversation(userId1: string, userId2: string): Promise<any> {
+    try {
+      // Get all conversations for user1
+      const user1Conversations = await this.getUserConversations(userId1);
+      
+      // Find private conversation with user2
+      for (const conversation of user1Conversations) {
+        if (conversation.type === 'private') {
+          const participants = await this.getConversationParticipants(conversation.id);
+          const participantIds = participants.map(p => p.userId);
+          
+          if (participantIds.includes(userId2) && participantIds.length === 2) {
+            return conversation;
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error finding private conversation:', error);
+      return null;
+    }
   }
 }

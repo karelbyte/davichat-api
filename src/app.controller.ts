@@ -1,7 +1,10 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Res } from '@nestjs/common';
 import { AppService } from './app.service';
 import { DynamoDBService } from './services/dynamodb.service';
 import { RedisService } from './services/redis.service';
+import { Response } from 'express';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Controller()
 export class AppController {
@@ -12,8 +15,13 @@ export class AppController {
   ) {}
 
   @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  serveIndex(@Res() res: Response) {
+    const indexPath = path.join(__dirname, '../public/index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.send('Chat API running');
+    }
   }
 
   @Get('api/users')
@@ -33,6 +41,12 @@ export class AppController {
     });
   }
 
+  @Post('api/users')
+  async createUser(@Body() userData: any) {
+    await this.dynamoDBService.createUser(userData);
+    return userData;
+  }
+
   @Post('api/conversations')
   async createConversation(
     @Body()
@@ -44,6 +58,18 @@ export class AppController {
       createdBy: string;
     },
   ) {
+    // For private conversations, check if one already exists
+    if (data.type === 'private' && data.participants.length === 2) {
+      const existingConversation = await this.dynamoDBService.findPrivateConversation(
+        data.participants[0],
+        data.participants[1]
+      );
+      
+      if (existingConversation) {
+        return existingConversation;
+      }
+    }
+
     const conversationId = require('uuid').v4();
     const conversationData = {
       id: conversationId,
@@ -94,5 +120,11 @@ export class AppController {
     const conversations =
       await this.dynamoDBService.getUserConversations(userId);
     return conversations;
+  }
+
+  @Get('api/messages/:conversationId')
+  async getConversationMessages(@Param('conversationId') conversationId: string) {
+    const messages = await this.dynamoDBService.getConversationMessages(conversationId);
+    return messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }
 }

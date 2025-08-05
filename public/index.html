@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat API - NestJS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="loginSection" class="min-h-screen flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-md w-96">
+            <h1 class="text-2xl font-bold text-center mb-6 text-gray-800">Chat API - Login</h1>
+            
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ID de Usuario</label>
+                    <input type="text" id="userId" required 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Nombre</label>
+                    <input type="text" id="userName" required 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <input type="email" id="userEmail" required 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Roles (separados por coma)</label>
+                    <input type="text" id="userRoles" value="user" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Filiales (separadas por coma)</label>
+                    <input type="text" id="userFilials" value="sucursal1" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                
+                <button type="submit" 
+                        class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    Conectar al Chat
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div id="chatSection" class="hidden min-h-screen bg-gray-100">
+        <div class="flex h-screen">
+            <!-- Sidebar -->
+            <div class="w-80 bg-white shadow-lg flex flex-col">
+                <!-- Header -->
+                <div class="p-4 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-semibold text-gray-800">Chat API</h2>
+                        <button id="logoutBtn" class="text-red-600 hover:text-red-800 text-sm">Salir</button>
+                    </div>
+                    <div class="mt-2 text-sm text-gray-600">
+                        Conectado como: <span id="currentUser" class="font-medium"></span>
+                    </div>
+                </div>
+
+                <!-- Users and Groups List -->
+                <div id="usersGroupsList" class="flex-1 overflow-y-auto p-4">
+                    <div class="space-y-2">
+                        <div class="text-sm text-gray-500 mb-4">Cargando usuarios y grupos...</div>
+                    </div>
+                </div>
+
+                <!-- Create Group Button -->
+                <div class="p-4 border-t border-gray-200">
+                    <button id="createGroupBtn" class="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 text-sm">
+                        Crear Grupo
+                    </button>
+                </div>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="flex-1 flex flex-col">
+                <!-- Chat Header -->
+                <div id="chatHeader" class="bg-white shadow-sm border-b border-gray-200 p-4 hidden">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 id="chatTitle" class="text-lg font-semibold text-gray-800"></h3>
+                            <p id="chatSubtitle" class="text-sm text-gray-600"></p>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button id="addParticipantBtn" class="text-blue-600 hover:text-blue-800 text-sm hidden">
+                                Añadir Participante
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Messages Area -->
+                <div id="messagesArea" class="flex-1 overflow-y-auto p-4 hidden">
+                    <div id="messagesList" class="space-y-4">
+                        <div class="text-center text-gray-500">Selecciona una conversación para comenzar</div>
+                    </div>
+                </div>
+
+                <!-- Message Input -->
+                <div id="messageInput" class="bg-white border-t border-gray-200 p-4 hidden">
+                    <div class="flex space-x-2">
+                        <input type="text" id="messageText" placeholder="Escribe un mensaje..." 
+                               class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button id="sendMessageBtn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                            Enviar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Welcome Screen -->
+                <div id="welcomeScreen" class="flex-1 flex items-center justify-center">
+                    <div class="text-center">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-2">Bienvenido al Chat</h3>
+                        <p class="text-gray-600">Selecciona un usuario para iniciar una conversación o crea un grupo</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Group Modal -->
+    <div id="createGroupModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg p-6 w-96">
+            <h3 class="text-lg font-semibold mb-4">Crear Grupo</h3>
+            <form id="createGroupForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Nombre del Grupo</label>
+                    <input type="text" id="groupName" required 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Descripción</label>
+                    <textarea id="groupDescription" rows="3" 
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Participantes</label>
+                    <div id="groupParticipants" class="space-y-2 max-h-32 overflow-y-auto">
+                        <!-- Participants will be added here -->
+                    </div>
+                </div>
+                <div class="flex space-x-2">
+                    <button type="button" id="cancelCreateGroup" 
+                            class="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400">
+                        Cancelar
+                    </button>
+                    <button type="submit" 
+                            class="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">
+                        Crear Grupo
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let socket;
+        let currentUser = null;
+        let users = [];
+        let conversations = [];
+        let currentConversation = null;
+        let selectedUsers = [];
+        let unreadCounts = {};
+
+        // API configuration
+        const API_BASE = 'http://localhost:6060/api';
+        const SOCKET_URL = 'http://localhost:6060';
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            // Login form
+            document.getElementById('loginForm').addEventListener('submit', handleLogin);
+            
+            // Logout
+            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+            
+
+            
+            // Create group
+            document.getElementById('createGroupBtn').addEventListener('click', showCreateGroupModal);
+            document.getElementById('cancelCreateGroup').addEventListener('click', hideCreateGroupModal);
+            document.getElementById('createGroupForm').addEventListener('submit', handleCreateGroup);
+            
+            // Message input
+            document.getElementById('sendMessageBtn').addEventListener('click', sendMessage);
+            document.getElementById('messageText').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendMessage();
+            });
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            
+            const userData = {
+                id: document.getElementById('userId').value,
+                name: document.getElementById('userName').value,
+                email: document.getElementById('userEmail').value,
+                roles: document.getElementById('userRoles').value.split(',').map(r => r.trim()),
+                filials: document.getElementById('userFilials').value.split(',').map(f => f.trim()),
+                status: 'online',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                isActive: true
+            };
+
+            try {
+                // Create user in DynamoDB (if not exists)
+                await axios.post(`${API_BASE}/users`, userData);
+                
+                currentUser = userData;
+                connectSocket();
+                showChat();
+                
+                // Emitir evento de nuevo usuario conectado después de conectar el socket
+                setTimeout(() => {
+                    if (socket) {
+                        socket.emit('user_join', { 
+                            userId: currentUser.id,
+                            name: currentUser.name,
+                            email: currentUser.email
+                        });
+                    }
+                }, 100);
+                
+                loadUsersAndGroups();
+                
+            } catch (error) {
+                console.error('Error creating user:', error);
+                alert('Error al conectar. Verifica que el servidor esté corriendo.');
+            }
+        }
+
+        function connectSocket() {
+            socket = io(SOCKET_URL, {
+                auth: {
+                    userId: currentUser.id
+                }
+            });
+
+            socket.on('connect', () => {
+                console.log('Conectado al servidor');
+                socket.emit('user_join', { userId: currentUser.id });
+            });
+
+            socket.on('disconnect', () => {
+                console.log('Desconectado del servidor');
+            });
+
+            socket.on('message_received', (message) => {
+                console.log('Message received:', message);
+                if (currentConversation && message.conversationId === currentConversation.id) {
+                    addMessageToChat(message);
+                }
+            });
+
+            socket.on('user_status_update', (data) => {
+                updateUserStatus(data.userId, data.status === 'online');
+            });
+
+            socket.on('user_connected', (data) => {
+                console.log('Nuevo usuario conectado:', data);
+                // Recargar la lista de usuarios para incluir al nuevo usuario
+                loadUsersAndGroups();
+            });
+
+            socket.on('user_status_update', (data) => {
+                console.log('Estado de usuario actualizado:', data);
+                updateUserStatus(data.userId, data.status === 'online');
+            });
+
+            socket.on('unread_message_private', (data) => {
+                const senderId = data.senderId;
+                if (currentConversation && currentConversation.id === data.conversationId) {
+                    return;
+                }
+                unreadCounts[senderId] = (unreadCounts[senderId] || 0) + 1;
+                renderUsersAndGroups();
+            });
+
+            socket.on('unread_message_group', (data) => {
+                const senderId = data.senderId;
+                if (currentConversation && currentConversation.id === data.conversationId) {
+                    return;
+                }
+                unreadCounts[senderId] = (unreadCounts[senderId] || 0) + 1;
+                renderUsersAndGroups();
+            });
+
+            socket.on('group_created', (data) => {
+                showNotification('Grupo creado: ' + data.name);
+                loadConversations();
+            });
+
+            socket.on('user_added_to_group', (data) => {
+                showNotification('Te han añadido a un grupo');
+                loadConversations();
+            });
+        }
+
+        function showChat() {
+            document.getElementById('loginSection').classList.add('hidden');
+            document.getElementById('chatSection').classList.remove('hidden');
+            document.getElementById('currentUser').textContent = currentUser.name;
+        }
+
+        function handleLogout() {
+            if (socket) {
+                socket.emit('user_leave', { userId: currentUser.id });
+                socket.disconnect();
+            }
+            currentUser = null;
+            document.getElementById('chatSection').classList.add('hidden');
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('loginForm').reset();
+        }
+
+        async function loadUsersAndGroups() {
+            try {
+                const [usersResponse, conversationsResponse] = await Promise.all([
+                    axios.get(`${API_BASE}/users`),
+                    axios.get(`${API_BASE}/conversations/user/${currentUser.id}`)
+                ]);
+                users = usersResponse.data;
+                conversations = conversationsResponse.data;
+                renderUsersAndGroups();
+            } catch (error) {
+                console.error('Error loading users and groups:', error);
+            }
+        }
+
+        function renderUsersAndGroups() {
+            const container = document.getElementById('usersGroupsList');
+            container.innerHTML = '';
+
+            // Renderizar usuarios
+            users.forEach(user => {
+                if (user.id === currentUser.id) return;
+
+                const unreadCount = unreadCounts[user.id] || 0;
+                const userDiv = document.createElement('div');
+                userDiv.className = `p-3 border rounded-lg cursor-pointer hover:bg-gray-50 ${user.isOnline ? 'border-green-200 bg-green-50' : 'border-gray-200'} mb-2`;
+                userDiv.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <div>
+                                <div class="font-medium text-gray-800">👤 ${user.name}</div>
+                                <div class="text-sm text-gray-600">${user.email}</div>
+                            </div>
+                            ${unreadCount > 0 ? `<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full">${unreadCount}</span>` : ''}
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-2 h-2 rounded-full ${user.isOnline ? 'bg-green-500' : 'bg-gray-400'}"></div>
+                        </div>
+                    </div>
+                `;
+                userDiv.onclick = () => startPrivateChat(user.id);
+                container.appendChild(userDiv);
+            });
+
+            // Renderizar grupos
+            const groups = conversations.filter(conv => conv.type === 'group');
+            groups.forEach(group => {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'p-3 border rounded-lg cursor-pointer hover:bg-gray-50 border-blue-200 bg-blue-50 mb-2';
+                groupDiv.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                            <div>
+                                <div class="font-medium text-gray-800">👥 ${group.name}</div>
+                                <div class="text-sm text-gray-600">${group.description || 'Grupo'}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                groupDiv.onclick = () => joinConversation(group);
+                container.appendChild(groupDiv);
+            });
+        }
+
+
+
+
+
+
+
+        async function startPrivateChat(otherUserId) {
+            try {
+                const response = await axios.post(`${API_BASE}/conversations`, {
+                    type: 'private',
+                    participants: [currentUser.id, otherUserId],
+                    createdBy: currentUser.id
+                });
+                
+                unreadCounts[otherUserId] = 0;
+                renderUsersAndGroups();
+                joinConversation(response.data);
+            } catch (error) {
+                console.error('Error creating private chat:', error);
+            }
+        }
+
+
+
+        function joinConversation(conversation) {
+            currentConversation = conversation;
+            
+            // Update UI
+            document.getElementById('chatHeader').classList.remove('hidden');
+            document.getElementById('messagesArea').classList.remove('hidden');
+            document.getElementById('messageInput').classList.remove('hidden');
+            document.getElementById('welcomeScreen').classList.add('hidden');
+            
+            document.getElementById('chatTitle').textContent = conversation.name || 'Chat privado';
+            document.getElementById('chatSubtitle').textContent = conversation.type === 'group' ? 'Grupo' : 'Conversación privada';
+            
+            // Join room
+            socket.emit('join_room', {
+                conversationId: conversation.id,
+                userId: currentUser.id
+            });
+            
+            // Clear messages
+            document.getElementById('messagesList').innerHTML = '';
+            
+            // Load messages
+            loadMessages(conversation.id);
+            
+            // Clear unread count for participants
+            if (conversation.participants) {
+                conversation.participants.forEach(participantId => {
+                    if (participantId !== currentUser.id) {
+                        unreadCounts[participantId] = 0;
+                    }
+                });
+                renderUsersAndGroups();
+            }
+        }
+
+        function sendMessage() {
+            const messageText = document.getElementById('messageText').value.trim();
+            if (!messageText || !currentConversation) return;
+
+            socket.emit('send_message', {
+                conversationId: currentConversation.id,
+                senderId: currentUser.id,
+                content: messageText,
+                messageType: 'text'
+            });
+
+            document.getElementById('messageText').value = '';
+        }
+
+        function addMessageToChat(message) {
+            const messagesList = document.getElementById('messagesList');
+            const messageDiv = document.createElement('div');
+            const isOwnMessage = message.senderId === currentUser.id;
+            
+            messageDiv.className = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'} mb-4`;
+            messageDiv.innerHTML = `
+                <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${isOwnMessage ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'}">
+                    <div class="text-sm">${message.content}</div>
+                    <div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'} mt-1">
+                        ${new Date(message.timestamp).toLocaleTimeString()}
+                    </div>
+                </div>
+            `;
+            
+            messagesList.appendChild(messageDiv);
+            messagesList.scrollTop = messagesList.scrollHeight;
+        }
+
+        function showCreateGroupModal() {
+            document.getElementById('createGroupModal').classList.remove('hidden');
+            renderGroupParticipants();
+        }
+
+        function hideCreateGroupModal() {
+            document.getElementById('createGroupModal').classList.add('hidden');
+            document.getElementById('createGroupForm').reset();
+            selectedUsers = [];
+        }
+
+        function renderGroupParticipants() {
+            const container = document.getElementById('groupParticipants');
+            container.innerHTML = '';
+            
+            users.forEach(user => {
+                if (user.id === currentUser.id) return;
+                
+                const userDiv = document.createElement('div');
+                userDiv.className = 'flex items-center space-x-2';
+                userDiv.innerHTML = `
+                    <input type="checkbox" id="user_${user.id}" value="${user.id}" class="rounded">
+                    <label for="user_${user.id}" class="text-sm">${user.name}</label>
+                `;
+                
+                const checkbox = userDiv.querySelector('input');
+                checkbox.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedUsers.push(user.id);
+                    } else {
+                        selectedUsers = selectedUsers.filter(id => id !== user.id);
+                    }
+                });
+                
+                container.appendChild(userDiv);
+            });
+        }
+
+        async function handleCreateGroup(e) {
+            e.preventDefault();
+            
+            const groupName = document.getElementById('groupName').value;
+            const groupDescription = document.getElementById('groupDescription').value;
+            
+            if (selectedUsers.length === 0) {
+                alert('Selecciona al menos un participante');
+                return;
+            }
+
+            try {
+                socket.emit('create_group', {
+                    name: groupName,
+                    description: groupDescription,
+                    participants: [currentUser.id, ...selectedUsers],
+                    createdBy: currentUser.id
+                });
+                
+                hideCreateGroupModal();
+            } catch (error) {
+                console.error('Error creating group:', error);
+                alert('Error al crear el grupo');
+            }
+        }
+
+        function updateUserStatus(userId, isOnline) {
+            const user = users.find(u => u.id === userId);
+            if (user) {
+                user.isOnline = isOnline;
+                renderUsersAndGroups();
+            } else {
+                // Si el usuario no existe en la lista, recargar toda la lista
+                loadUsersAndGroups();
+            }
+        }
+
+        async function loadMessages(conversationId) {
+            try {
+                const response = await axios.get(`${API_BASE}/messages/${conversationId}`);
+                const messages = response.data;
+                
+                const messagesList = document.getElementById('messagesList');
+                messagesList.innerHTML = '';
+                
+                messages.forEach(message => {
+                    addMessageToChat(message);
+                });
+            } catch (error) {
+                console.error('Error loading messages:', error);
+            }
+        }
+
+        function showNotification(message) {
+            // Crear notificación más elegante
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg z-50';
+            notification.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Remover después de 5 segundos
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html> 

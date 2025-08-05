@@ -39,18 +39,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.handshake.auth.userId;
     if (userId) {
       await this.redisService.setUserOffline(userId);
+      this.server.emit('user_status_update', { userId, status: 'offline' });
     }
   }
 
   @SubscribeMessage('user_join')
   async handleUserJoin(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { userId: string },
+    @MessageBody() data: { userId: string; name?: string; email?: string },
   ) {
-    const userId = data.userId;
+    const { userId, name, email } = data;
     await this.redisService.setUserOnline(userId);
+    await this.redisService.setUser(userId, { userId, name, email });
     client.join(`user:${userId}`);
+    
+    // Emitir evento de nuevo usuario a todos los clientes conectados
     this.server.emit('user_status_update', { userId, status: 'online' });
+    
+    // Emitir evento específico para nuevo usuario conectado
+    this.server.emit('user_connected', {
+      userId,
+      name,
+      email,
+      status: 'online'
+    });
   }
 
   @SubscribeMessage('user_leave')
@@ -128,28 +140,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       .emit('message_received', messageData);
 
     const onlineUsers = await this.redisService.getOnlineUsers();
-    const offlineParticipants = participants.filter(
-      (p) => !onlineUsers.includes(p.userId) && p.userId !== senderId,
-    );
+    
+    for (const participant of participants) {
+      if (participant.userId === senderId) continue;
+      
+      const isOnline = onlineUsers.includes(participant.userId);
+      
+      if (isOnline) {
+        const unreadEvent = {
+          type: conversation.type,
+          conversationId,
+          senderId,
+          messageId,
+          content,
+          timestamp,
+        };
 
-    for (const participant of offlineParticipants) {
-      const unreadEvent = {
-        type: conversation.type,
-        conversationId,
-        senderId,
-        messageId,
-        content,
-        timestamp,
-      };
-
-      this.server
-        .to(`user:${participant.userId}`)
-        .emit(
-          conversation.type === 'private'
-            ? 'unread_message_private'
-            : 'unread_message_group',
-          unreadEvent,
-        );
+        this.server
+          .to(`user:${participant.userId}`)
+          .emit(
+            conversation.type === 'private'
+              ? 'unread_message_private'
+              : 'unread_message_group',
+            unreadEvent,
+          );
+      }
     }
   }
 
