@@ -58,7 +58,6 @@ export class AppController {
       createdBy: string;
     },
   ) {
-    // For private conversations, check if one already exists
     if (data.type === 'private' && data.participants.length === 2) {
       const existingConversation = await this.dynamoDBService.findPrivateConversation(
         data.participants[0],

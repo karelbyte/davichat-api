@@ -172,6 +172,7 @@
         let currentConversation = null;
         let selectedUsers = [];
         let unreadCounts = {};
+        let groupUnreadCounts = {};
 
         // API configuration
         const API_BASE = 'http://localhost:6060/api';
@@ -293,11 +294,11 @@
             });
 
             socket.on('unread_message_group', (data) => {
-                const senderId = data.senderId;
-                if (currentConversation && currentConversation.id === data.conversationId) {
+                const conversationId = data.conversationId;
+                if (currentConversation && currentConversation.id === conversationId) {
                     return;
                 }
-                unreadCounts[senderId] = (unreadCounts[senderId] || 0) + 1;
+                groupUnreadCounts[conversationId] = (groupUnreadCounts[conversationId] || 0) + 1;
                 renderUsersAndGroups();
             });
 
@@ -375,6 +376,7 @@
             // Renderizar grupos
             const groups = conversations.filter(conv => conv.type === 'group');
             groups.forEach(group => {
+                const unreadCount = groupUnreadCounts[group.id] || 0;
                 const groupDiv = document.createElement('div');
                 groupDiv.className = 'p-3 border rounded-lg cursor-pointer hover:bg-gray-50 border-blue-200 bg-blue-50 mb-2';
                 groupDiv.innerHTML = `
@@ -384,6 +386,7 @@
                                 <div class="font-medium text-gray-800">👥 ${group.name}</div>
                                 <div class="text-sm text-gray-600">${group.description || 'Grupo'}</div>
                             </div>
+                            ${unreadCount > 0 ? `<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full">${unreadCount}</span>` : ''}
                         </div>
                     </div>
                 `;
@@ -447,8 +450,14 @@
                         unreadCounts[participantId] = 0;
                     }
                 });
-                renderUsersAndGroups();
             }
+            
+            // Clear group unread count
+            if (conversation.type === 'group') {
+                groupUnreadCounts[conversation.id] = 0;
+            }
+            
+            renderUsersAndGroups();
         }
 
         function sendMessage() {

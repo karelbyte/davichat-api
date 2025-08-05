@@ -241,6 +241,8 @@ src/
 - Creación automática de tablas DynamoDB
 - Escalabilidad con Redis Adapter
 - Notificaciones en tiempo real de nuevos usuarios conectados
+- Badges diferenciados para usuarios y grupos
+- Actualización en tiempo real de estados online/offline
 
 ### Arquitectura de Datos
 
@@ -432,9 +434,10 @@ socket.on('typing_indicator', (data) => {
 ### Mensajes No Leídos
 
 #### Badges de Mensajes No Leídos
-- **Badges en usuarios**: Contador de mensajes no leídos junto al nombre del usuario
-- **Actualización automática**: Se incrementa cuando llegan mensajes de usuarios no visibles
-- **Limpieza automática**: Se resetea cuando se hace clic en el chat del usuario
+- **Badges en usuarios**: Contador de mensajes privados no leídos junto al nombre del usuario
+- **Badges en grupos**: Contador de mensajes de grupo no leídos junto al nombre del grupo
+- **Actualización automática**: Se incrementa cuando llegan mensajes de usuarios/grupos no visibles
+- **Limpieza automática**: Se resetea cuando se hace clic en el chat del usuario o grupo
 - **Interfaz intuitiva**: Badge rojo con número de mensajes no leídos
 - **Lógica inteligente**: No muestra badges si el usuario está en la conversación activa
 ```javascript
@@ -455,9 +458,9 @@ socket.on('unread_message_group', (data) => {
   if (currentConversation && currentConversation.id === data.conversationId) {
     return; // No mostrar badge si está en la conversación activa
   }
-  // Incrementar contador de mensajes no leídos
-  unreadCounts[data.senderId] = (unreadCounts[data.senderId] || 0) + 1;
-  renderUsers(); // Actualizar interfaz
+  // Incrementar contador de mensajes de grupo no leídos
+  groupUnreadCounts[data.conversationId] = (groupUnreadCounts[data.conversationId] || 0) + 1;
+  renderUsersAndGroups(); // Actualizar interfaz
 });
 
 // Marcar mensajes como leídos
@@ -555,6 +558,30 @@ function joinConversation(conversation) {
 - **Rendimiento**: No requiere búsquedas complejas en Socket.IO
 - **Flexibilidad**: Fácil de modificar y extender
 - **UX**: Badges aparecen/desaparecen instantáneamente
+
+#### 5. **Solución para Badges de Grupos**
+- **Problema resuelto**: Los mensajes de grupo ahora muestran badge en el grupo, no en el remitente
+- **Variables separadas**: `unreadCounts` para usuarios, `groupUnreadCounts` para grupos
+- **Lógica diferenciada**: Eventos de grupo incrementan badge del grupo, no del usuario
+- **Limpieza automática**: Al entrar al grupo se resetea el contador
+
+### Estado Actual del Sistema
+
+#### ✅ Funcionalidades Completadas
+- **Chat privado**: Funciona correctamente con persistencia
+- **Grupos**: Creación, participación y mensajería
+- **Badges**: Diferenciados para usuarios y grupos
+- **Estados online/offline**: Actualización en tiempo real
+- **Notificaciones**: Mensajes no leídos con badges
+- **UX simplificada**: Una sola lista, clic directo
+- **Persistencia**: DynamoDB + Redis funcionando
+- **Escalabilidad**: Redis Adapter implementado
+
+#### 🔧 Problemas Resueltos
+- **Conversaciones privadas**: Ahora son persistentes entre sesiones
+- **Badges de grupos**: Se muestran en el grupo, no en el remitente
+- **Estados offline**: Se actualizan en tiempo real
+- **UX**: Simplificada sin tabs, con clic directo
 
 ### API REST con Axios
 ```javascript

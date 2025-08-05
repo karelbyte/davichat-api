@@ -53,10 +53,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.redisService.setUser(userId, { userId, name, email });
     client.join(`user:${userId}`);
     
-    // Emitir evento de nuevo usuario a todos los clientes conectados
     this.server.emit('user_status_update', { userId, status: 'online' });
     
-    // Emitir evento específico para nuevo usuario conectado
     this.server.emit('user_connected', {
       userId,
       name,

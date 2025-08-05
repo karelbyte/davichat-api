@@ -25,7 +25,8 @@ export class DynamoDBService implements OnModuleInit {
       region: this.configService.get('app.dynamodb.region') || 'us-east-1',
       credentials: {
         accessKeyId: this.configService.get('app.dynamodb.accessKeyId') || '',
-        secretAccessKey: this.configService.get('app.dynamodb.secretAccessKey') || '',
+        secretAccessKey:
+          this.configService.get('app.dynamodb.secretAccessKey') || '',
       },
       endpoint: this.configService.get('app.dynamodb.endpoint'),
     });
@@ -61,9 +62,7 @@ export class DynamoDBService implements OnModuleInit {
         globalSecondaryIndexes: [
           {
             IndexName: 'userId-index',
-            KeySchema: [
-              { AttributeName: 'userId', KeyType: 'HASH' },
-            ],
+            KeySchema: [{ AttributeName: 'userId', KeyType: 'HASH' }],
             Projection: {
               ProjectionType: 'ALL',
             },
@@ -251,7 +250,8 @@ export class DynamoDBService implements OnModuleInit {
         conversationId,
         userId,
       },
-      UpdateExpression: 'SET unreadCount = :unreadCount, lastReadAt = :lastReadAt',
+      UpdateExpression:
+        'SET unreadCount = :unreadCount, lastReadAt = :lastReadAt',
       ExpressionAttributeValues: {
         ':unreadCount': unreadCount,
         ':lastReadAt': lastReadAt,
@@ -262,7 +262,6 @@ export class DynamoDBService implements OnModuleInit {
 
   async getUserConversations(userId: string): Promise<any[]> {
     try {
-      // Try to use GSI first
       const command = new QueryCommand({
         TableName: 'conversation_participants',
         IndexName: 'userId-index',
@@ -273,17 +272,18 @@ export class DynamoDBService implements OnModuleInit {
       });
       const result = await this.client.send(command);
       const conversations: any[] = [];
-      
+
       for (const participant of result.Items || []) {
-        const conversation = await this.getConversation(participant.conversationId);
+        const conversation = await this.getConversation(
+          participant.conversationId,
+        );
         if (conversation) {
           conversations.push(conversation);
         }
       }
-      
+
       return conversations;
     } catch (error) {
-      // If GSI doesn't exist, use Scan as fallback
       const scanCommand = new ScanCommand({
         TableName: 'conversation_participants',
         FilterExpression: 'userId = :userId',
@@ -293,35 +293,40 @@ export class DynamoDBService implements OnModuleInit {
       });
       const result = await this.client.send(scanCommand);
       const conversations: any[] = [];
-      
+
       for (const participant of result.Items || []) {
-        const conversation = await this.getConversation(participant.conversationId);
+        const conversation = await this.getConversation(
+          participant.conversationId,
+        );
         if (conversation) {
           conversations.push(conversation);
         }
       }
-      
+
       return conversations;
     }
   }
 
-  async findPrivateConversation(userId1: string, userId2: string): Promise<any> {
+    async findPrivateConversation(
+    userId1: string,
+    userId2: string,
+  ): Promise<any> {
     try {
-      // Get all conversations for user1
       const user1Conversations = await this.getUserConversations(userId1);
       
-      // Find private conversation with user2
       for (const conversation of user1Conversations) {
         if (conversation.type === 'private') {
-          const participants = await this.getConversationParticipants(conversation.id);
-          const participantIds = participants.map(p => p.userId);
-          
+          const participants = await this.getConversationParticipants(
+            conversation.id,
+          );
+          const participantIds = participants.map((p) => p.userId);
+
           if (participantIds.includes(userId2) && participantIds.length === 2) {
             return conversation;
           }
         }
       }
-      
+
       return null;
     } catch (error) {
       console.error('Error finding private conversation:', error);
