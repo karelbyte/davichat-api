@@ -118,6 +118,10 @@
                     <div class="flex space-x-2">
                         <input type="text" id="messageText" placeholder="Escribe un mensaje..." 
                                class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button id="attachFileBtn" class="bg-gray-500 text-white px-3 py-2 rounded-md hover:bg-gray-600">
+                            📎
+                        </button>
+                        <input type="file" id="fileInput" class="hidden" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain">
                         <button id="sendMessageBtn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
                             Enviar
                         </button>
@@ -242,6 +246,12 @@
             document.getElementById('messageText').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') sendMessage();
             });
+            
+            // File attachment
+            document.getElementById('attachFileBtn').addEventListener('click', () => {
+                document.getElementById('fileInput').click();
+            });
+            document.getElementById('fileInput').addEventListener('change', handleFileUpload);
             
             // Typing events
             document.getElementById('messageText').addEventListener('input', handleTypingStart);
@@ -535,6 +545,37 @@
             handleTypingStop();
         }
 
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file || !currentConversation) return;
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await axios.post(`${API_BASE}/upload`, formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data',
+                    },
+                });
+
+                const fileData = response.data;
+                
+                socket.emit('send_message', {
+                    conversationId: currentConversation.id,
+                    senderId: currentUser.id,
+                    content: JSON.stringify(fileData),
+                    messageType: 'file'
+                });
+
+                document.getElementById('fileInput').value = '';
+                showNotification('Archivo enviado correctamente');
+            } catch (error) {
+                console.error('Error uploading file:', error);
+                alert('Error al subir el archivo');
+            }
+        }
+
         function addMessageToChat(message) {
             const messagesList = document.getElementById('messagesList');
             const messageDiv = document.createElement('div');
@@ -549,16 +590,65 @@
                 senderName = sender ? sender.name : 'Usuario';
             }
             
+            let messageContent = '';
+            if (message.messageType === 'file') {
+                try {
+                    const fileData = JSON.parse(message.content);
+                    messageContent = renderFileMessage(fileData, isOwnMessage);
+                } catch (error) {
+                    messageContent = '<div class="text-sm">Error al cargar archivo</div>';
+                }
+            } else {
+                messageContent = `<div class="text-sm">${message.content}</div>`;
+            }
+            
             messageDiv.innerHTML = `
                 <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${isOwnMessage ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'}">
                     ${isGroupConversation && !isOwnMessage ? `<div class="text-xs font-medium ${isOwnMessage ? 'text-blue-100' : 'text-gray-600'} mb-1">${senderName} • ${new Date(message.timestamp).toLocaleTimeString()}</div>` : ''}
-                    <div class="text-sm">${message.content}</div>
+                    ${messageContent}
                     ${!isGroupConversation || isOwnMessage ? `<div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'} mt-1">${new Date(message.timestamp).toLocaleTimeString()}</div>` : ''}
                 </div>
             `;
             
             messagesList.appendChild(messageDiv);
             messagesList.scrollTop = messagesList.scrollHeight;
+        }
+
+        function renderFileMessage(fileData, isOwnMessage) {
+            const isImage = fileData.fileType.startsWith('image/');
+            const fileSize = formatFileSize(fileData.fileSize);
+            
+            if (isImage) {
+                return `
+                    <div class="mb-2">
+                        <img src="${fileData.fileUrl}" alt="${fileData.fileName}" class="max-w-full h-auto rounded">
+                    </div>
+                    <div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'}">
+                        📎 ${fileData.fileName} (${fileSize})
+                    </div>
+                `;
+            } else {
+                return `
+                    <div class="flex items-center space-x-2 p-2 bg-gray-100 rounded">
+                        <div class="text-2xl">📄</div>
+                        <div class="flex-1">
+                            <div class="text-sm font-medium">${fileData.fileName}</div>
+                            <div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'}">${fileSize}</div>
+                        </div>
+                        <a href="${fileData.fileUrl}" target="_blank" class="text-blue-500 hover:text-blue-700">
+                            📥
+                        </a>
+                    </div>
+                `;
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
         function showCreateGroupModal() {

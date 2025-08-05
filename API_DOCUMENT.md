@@ -32,6 +32,13 @@ PORT=3000
 NODE_ENV=development
 
 SOCKET_CORS_ORIGIN=http://localhost:3000
+
+FILE_STORAGE_TYPE=aws
+FILE_UPLOAD_MAX_SIZE=10485760
+FILE_ALLOWED_TYPES=image/jpeg,image/png,image/gif,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain
+FILE_STORAGE_LOCAL_PATH=./uploads
+FILE_STORAGE_S3_BUCKET=chat-file-storage
+FILE_STORAGE_S3_REGION=us-east-1
 ```
 
 ### Configuración Implementada
@@ -207,7 +214,7 @@ src/
 - connection/disconnect
 - user_join/user_leave
 - join_room/leave_room
-- send_message
+- send_message (text/file)
 - typing_start/typing_stop (indicador de escritura)
 - user_status
 - mark_messages_as_read
@@ -245,6 +252,7 @@ src/
 - Actualización en tiempo real de estados online/offline
 - Indicador de "está escribiendo..." para conversaciones privadas y grupos
 - Botón "Añadir Participantes" en conversaciones de grupo
+- Soporte para archivos (imágenes, documentos, PDFs)
 
 ### Arquitectura de Datos
 
@@ -312,6 +320,44 @@ src/
 #### Eventos WebSocket
 - **Cliente → Servidor**: `add_user_to_group`
 - **Servidor → Cliente**: `user_added_to_group`
+
+### Funcionalidad de Archivos
+
+#### Características
+- **Tipos soportados**: Imágenes (JPEG, PNG, GIF, WebP), PDFs, documentos Word, archivos de texto
+- **Almacenamiento dual**: Local o AWS S3 configurable
+- **Tamaño máximo**: 10MB por archivo
+- **Validación**: Tipo y tamaño de archivo
+- **Preview**: Imágenes se muestran directamente, documentos con icono y enlace de descarga
+- **Configuración S3**: Bucket configurado con política de acceso público para lectura
+
+#### Flujo de Funcionamiento
+1. **Usuario selecciona archivo**: Hace clic en el botón de adjuntar (📎)
+2. **Frontend sube archivo**: POST a `/api/upload` con FormData
+3. **Backend valida**: Tipo, tamaño y almacena según configuración
+4. **Backend retorna**: URL del archivo y metadatos
+5. **Frontend envía mensaje**: `send_message` con `messageType: 'file'`
+6. **Backend procesa**: Guarda en DynamoDB con metadatos del archivo
+7. **Frontend renderiza**: Imágenes como preview, documentos como tarjetas descargables
+
+#### Endpoints REST
+- **POST /api/upload**: Subir archivo
+  - **Body**: FormData con campo 'file'
+  - **Response**: `{ fileUrl, fileName, fileSize, fileType, thumbnailUrl? }`
+
+#### Variables de Entorno
+- **FILE_STORAGE_TYPE**: 'local' o 'aws'
+- **FILE_UPLOAD_MAX_SIZE**: Tamaño máximo en bytes (default: 10MB)
+- **FILE_ALLOWED_TYPES**: Tipos MIME permitidos separados por coma
+- **FILE_STORAGE_LOCAL_PATH**: Ruta para almacenamiento local
+- **FILE_STORAGE_S3_BUCKET**: Bucket de S3 para almacenamiento AWS
+- **FILE_STORAGE_S3_REGION**: Región de S3
+
+#### Configuración AWS S3
+- **Bucket Policy**: Configurada para permitir acceso público de lectura
+- **URLs generadas**: `https://{bucket}.s3.{region}.amazonaws.com/{filename}`
+- **Sin ACL**: No se usa ACL para evitar errores de compatibilidad
+- **Acceso directo**: Los archivos son accesibles directamente desde el navegador
 
 ### Funcionalidad de Conversaciones Privadas
 
@@ -623,12 +669,16 @@ function joinConversation(conversation) {
 - **UX simplificada**: Una sola lista, clic directo
 - **Persistencia**: DynamoDB + Redis funcionando
 - **Escalabilidad**: Redis Adapter implementado
+- **Soporte de archivos**: Subida y visualización de imágenes y documentos
+- **Almacenamiento S3**: Configurado y funcionando con acceso público
 
 #### 🔧 Problemas Resueltos
 - **Conversaciones privadas**: Ahora son persistentes entre sesiones
 - **Badges de grupos**: Se muestran en el grupo, no en el remitente
 - **Estados offline**: Se actualizan en tiempo real
 - **UX**: Simplificada sin tabs, con clic directo
+- **S3 ACL**: Eliminado ACL para evitar errores de compatibilidad
+- **Acceso público S3**: Configurada política de bucket para acceso de lectura
 
 ### API REST con Axios
 ```javascript

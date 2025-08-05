@@ -18,4 +18,25 @@ export default registerAs('app', () => ({
   socket: {
     corsOrigin: process.env.SOCKET_CORS_ORIGIN,
   },
-})); 
+  fileStorage: {
+    type: process.env.FILE_STORAGE_TYPE || 'local',
+    maxSize: parseInt(process.env.FILE_UPLOAD_MAX_SIZE || '10485760', 10),
+    allowedTypes: process.env.FILE_ALLOWED_TYPES?.split(',') || [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+    ],
+    local: {
+      path: process.env.FILE_STORAGE_LOCAL_PATH || './uploads',
+    },
+    s3: {
+      bucket: process.env.FILE_STORAGE_S3_BUCKET || 'chat-files',
+      region: process.env.FILE_STORAGE_S3_REGION || 'us-east-1',
+    },
+  },
+}));

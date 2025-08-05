@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Body, Param, Res } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Res, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AppService } from './app.service';
 import { DynamoDBService } from './services/dynamodb.service';
 import { RedisService } from './services/redis.service';
+import { FileStorageService } from './services/file-storage.service';
 import { Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -12,6 +14,7 @@ export class AppController {
     private readonly appService: AppService,
     private readonly dynamoDBService: DynamoDBService,
     private readonly redisService: RedisService,
+    private readonly fileStorageService: FileStorageService,
   ) {}
 
   @Get()
@@ -125,5 +128,21 @@ export class AppController {
   async getConversationMessages(@Param('conversationId') conversationId: string) {
     const messages = await this.dynamoDBService.getConversationMessages(conversationId);
     return messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
+
+  @Post('api/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const validation = this.fileStorageService.validateFile(file);
+    if (!validation.isValid) {
+      throw new BadRequestException(validation.error);
+    }
+
+    const fileData = await this.fileStorageService.uploadFile(file);
+    return fileData;
   }
 }

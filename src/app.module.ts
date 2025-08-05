@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { RedisService } from './services/redis.service';
 import { DynamoDBService } from './services/dynamodb.service';
+import { FileStorageService } from './services/file-storage.service';
 import { ChatGateway } from './gateways/chat.gateway';
 import appConfig from './configs/app.config';
 
@@ -15,6 +16,6 @@ import appConfig from './configs/app.config';
     }),
   ],
   controllers: [AppController],
-  providers: [AppService, RedisService, DynamoDBService, ChatGateway],
+          providers: [AppService, RedisService, DynamoDBService, FileStorageService, ChatGateway],
 })
 export class AppModule {}
