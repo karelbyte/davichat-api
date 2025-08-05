@@ -244,6 +244,7 @@ src/
 - Badges diferenciados para usuarios y grupos
 - Actualización en tiempo real de estados online/offline
 - Indicador de "está escribiendo..." para conversaciones privadas y grupos
+- Botón "Añadir Participantes" en conversaciones de grupo
 
 ### Arquitectura de Datos
 
@@ -287,6 +288,30 @@ src/
 #### Eventos WebSocket
 - **Cliente → Servidor**: `typing_start`, `typing_stop`
 - **Servidor → Cliente**: `typing_indicator`
+
+### Funcionalidad de Añadir Participantes a Grupos
+
+#### Características
+- **Botón dinámico**: Aparece solo en conversaciones de grupo
+- **Modal de selección**: Lista usuarios disponibles (no participantes actuales)
+- **Selección múltiple**: Permite seleccionar varios usuarios a la vez
+- **Notificación**: Confirma usuarios añadidos exitosamente
+- **Actualización en tiempo real**: Los nuevos participantes ven el grupo aparecer inmediatamente
+- **Sin refrescar**: No requiere recargar la página para ver cambios
+
+#### Flujo de Funcionamiento
+1. **Usuario hace clic**: En "Añadir Participantes" en grupo
+2. **Se abre modal**: Con lista de usuarios no participantes
+3. **Usuario selecciona**: Los usuarios a añadir
+4. **Se envían eventos**: `add_user_to_group` para cada usuario
+5. **Backend procesa**: Añade participantes a DynamoDB
+6. **Se notifica**: A los nuevos participantes via WebSocket
+7. **Se actualiza lista**: Los nuevos participantes ven el grupo aparecer en tiempo real
+8. **Se cierra modal**: Y se muestra confirmación
+
+#### Eventos WebSocket
+- **Cliente → Servidor**: `add_user_to_group`
+- **Servidor → Cliente**: `user_added_to_group`
 
 ### Funcionalidad de Conversaciones Privadas
 

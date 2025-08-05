@@ -170,6 +170,31 @@
         </div>
     </div>
 
+    <!-- Add Participants Modal -->
+    <div id="addParticipantsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg p-6 w-96">
+            <h3 class="text-lg font-semibold mb-4">Añadir Participantes</h3>
+            <form id="addParticipantsForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Usuarios disponibles</label>
+                    <div id="availableUsers" class="space-y-2 max-h-48 overflow-y-auto">
+                        <!-- Available users will be added here -->
+                    </div>
+                </div>
+                <div class="flex space-x-2">
+                    <button type="button" id="cancelAddParticipants" 
+                            class="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400">
+                        Cancelar
+                    </button>
+                    <button type="submit" 
+                            class="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">
+                        Añadir Seleccionados
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         // Global variables
         let socket;
@@ -182,6 +207,7 @@
         let groupUnreadCounts = {};
         let typingTimeout = null;
         let typingUsers = new Set();
+        let selectedUsersToAdd = [];
 
         // API configuration
         const API_BASE = 'http://localhost:6060/api';
@@ -205,6 +231,11 @@
             document.getElementById('createGroupBtn').addEventListener('click', showCreateGroupModal);
             document.getElementById('cancelCreateGroup').addEventListener('click', hideCreateGroupModal);
             document.getElementById('createGroupForm').addEventListener('submit', handleCreateGroup);
+            
+            // Add participants
+            document.getElementById('addParticipantBtn').addEventListener('click', showAddParticipantsModal);
+            document.getElementById('cancelAddParticipants').addEventListener('click', hideAddParticipantsModal);
+            document.getElementById('addParticipantsForm').addEventListener('submit', handleAddParticipants);
             
             // Message input
             document.getElementById('sendMessageBtn').addEventListener('click', sendMessage);
@@ -321,12 +352,12 @@
 
             socket.on('group_created', (data) => {
                 showNotification('Grupo creado: ' + data.name);
-                loadConversations();
+                loadUsersAndGroups();
             });
 
             socket.on('user_added_to_group', (data) => {
                 showNotification('Te han añadido a un grupo');
-                loadConversations();
+                loadUsersAndGroups();
             });
         }
 
@@ -448,6 +479,12 @@
             document.getElementById('chatTitle').textContent = conversation.name || 'Chat privado';
             document.getElementById('chatSubtitle').textContent = conversation.type === 'group' ? 'Grupo' : 'Conversación privada';
             
+            if (conversation.type === 'group') {
+                document.getElementById('addParticipantBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('addParticipantBtn').classList.add('hidden');
+            }
+            
             // Join room
             socket.emit('join_room', {
                 conversationId: conversation.id,
@@ -502,14 +539,21 @@
             const messagesList = document.getElementById('messagesList');
             const messageDiv = document.createElement('div');
             const isOwnMessage = message.senderId === currentUser.id;
+            const isGroupConversation = currentConversation && currentConversation.type === 'group';
             
             messageDiv.className = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'} mb-4`;
+            
+            let senderName = '';
+            if (isGroupConversation && !isOwnMessage) {
+                const sender = users.find(u => u.id === message.senderId);
+                senderName = sender ? sender.name : 'Usuario';
+            }
+            
             messageDiv.innerHTML = `
                 <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${isOwnMessage ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'}">
+                    ${isGroupConversation && !isOwnMessage ? `<div class="text-xs font-medium ${isOwnMessage ? 'text-blue-100' : 'text-gray-600'} mb-1">${senderName} • ${new Date(message.timestamp).toLocaleTimeString()}</div>` : ''}
                     <div class="text-sm">${message.content}</div>
-                    <div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'} mt-1">
-                        ${new Date(message.timestamp).toLocaleTimeString()}
-                    </div>
+                    ${!isGroupConversation || isOwnMessage ? `<div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'} mt-1">${new Date(message.timestamp).toLocaleTimeString()}</div>` : ''}
                 </div>
             `;
             
@@ -695,6 +739,74 @@
                 typingIndicator.classList.remove('hidden');
             } else {
                 typingIndicator.classList.add('hidden');
+            }
+        }
+
+        function showAddParticipantsModal() {
+            document.getElementById('addParticipantsModal').classList.remove('hidden');
+            renderAvailableUsers();
+        }
+
+        function hideAddParticipantsModal() {
+            document.getElementById('addParticipantsModal').classList.add('hidden');
+            document.getElementById('addParticipantsForm').reset();
+            selectedUsersToAdd = [];
+        }
+
+        function renderAvailableUsers() {
+            const container = document.getElementById('availableUsers');
+            container.innerHTML = '';
+            
+            if (!currentConversation || currentConversation.type !== 'group') return;
+            
+            const currentParticipants = currentConversation.participants || [];
+            
+            users.forEach(user => {
+                if (user.id === currentUser.id) return;
+                if (currentParticipants.includes(user.id)) return;
+                
+                const userDiv = document.createElement('div');
+                userDiv.className = 'flex items-center space-x-2';
+                userDiv.innerHTML = `
+                    <input type="checkbox" id="add_user_${user.id}" value="${user.id}" class="rounded">
+                    <label for="add_user_${user.id}" class="text-sm">${user.name}</label>
+                `;
+                
+                const checkbox = userDiv.querySelector('input');
+                checkbox.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedUsersToAdd.push(user.id);
+                    } else {
+                        selectedUsersToAdd = selectedUsersToAdd.filter(id => id !== user.id);
+                    }
+                });
+                
+                container.appendChild(userDiv);
+            });
+        }
+
+        async function handleAddParticipants(e) {
+            e.preventDefault();
+            
+            if (selectedUsersToAdd.length === 0) {
+                alert('Selecciona al menos un usuario para añadir');
+                return;
+            }
+
+            try {
+                for (const userId of selectedUsersToAdd) {
+                    socket.emit('add_user_to_group', {
+                        conversationId: currentConversation.id,
+                        userId: userId,
+                        addedBy: currentUser.id
+                    });
+                }
+                
+                hideAddParticipantsModal();
+                showNotification(`${selectedUsersToAdd.length} usuario(s) añadido(s) al grupo`);
+            } catch (error) {
+                console.error('Error adding participants:', error);
+                alert('Error al añadir participantes');
             }
         }
     </script>
