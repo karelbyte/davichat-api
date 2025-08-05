@@ -208,7 +208,7 @@ src/
 - user_join/user_leave
 - join_room/leave_room
 - send_message
-- typing_start/typing_stop
+- typing_start/typing_stop (indicador de escritura)
 - user_status
 - mark_messages_as_read
 - create_group
@@ -219,7 +219,7 @@ src/
 - user_connected (nuevo usuario conectado)
 - user_joined/user_left
 - message_received
-- typing_indicator
+- typing_indicator (está escribiendo...)
 - unread_message_private
 - unread_message_group
 - messages_marked_as_read
@@ -232,7 +232,7 @@ src/
 - Grupos (1 a N)
 - Crear grupos y añadir participantes
 - Mensajes no leídos con notificaciones
-- Indicadores de escritura
+- Indicadores de escritura ("está escribiendo...")
 - Estados de usuario online/offline
 - Marcar mensajes como leídos
 - Lista de usuarios con estado online/offline
@@ -243,6 +243,7 @@ src/
 - Notificaciones en tiempo real de nuevos usuarios conectados
 - Badges diferenciados para usuarios y grupos
 - Actualización en tiempo real de estados online/offline
+- Indicador de "está escribiendo..." para conversaciones privadas y grupos
 
 ### Arquitectura de Datos
 
@@ -265,6 +266,27 @@ src/
 - **Frontend**: Filtra eventos basado en conversación actual
 - **Badges**: Contadores en memoria del cliente
 - **Limpieza**: Automática al interactuar con conversaciones
+
+### Funcionalidad de Indicador de Escritura
+
+#### Características
+- **Tiempo real**: Se muestra instantáneamente cuando alguien empieza a escribir
+- **Conversaciones privadas**: Muestra "Juan está escribiendo..."
+- **Grupos**: Muestra "Juan y María están escribiendo..." o "Juan y otros están escribiendo..."
+- **Auto-limpieza**: Se oculta automáticamente después de 3 segundos de inactividad
+- **Cambio de conversación**: Se limpia al cambiar de conversación
+
+#### Flujo de Funcionamiento
+1. **Usuario empieza a escribir**: Se emite `typing_start`
+2. **Backend reenvía**: A todos los participantes de la conversación
+3. **Frontend recibe**: `typing_indicator` con `isTyping: true`
+4. **Se muestra indicador**: Con el nombre del usuario escribiendo
+5. **Usuario deja de escribir**: Se emite `typing_stop` después de 3 segundos
+6. **Se oculta indicador**: Cuando `isTyping: false`
+
+#### Eventos WebSocket
+- **Cliente → Servidor**: `typing_start`, `typing_stop`
+- **Servidor → Cliente**: `typing_indicator`
 
 ### Funcionalidad de Conversaciones Privadas
 

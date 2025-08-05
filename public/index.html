@@ -106,6 +106,13 @@
                     </div>
                 </div>
 
+                <!-- Typing Indicator -->
+                <div id="typingIndicator" class="bg-gray-50 border-t border-gray-200 p-2 hidden">
+                    <div class="text-sm text-gray-600 italic">
+                        <span id="typingText">Alguien está escribiendo...</span>
+                    </div>
+                </div>
+
                 <!-- Message Input -->
                 <div id="messageInput" class="bg-white border-t border-gray-200 p-4 hidden">
                     <div class="flex space-x-2">
@@ -173,6 +180,8 @@
         let selectedUsers = [];
         let unreadCounts = {};
         let groupUnreadCounts = {};
+        let typingTimeout = null;
+        let typingUsers = new Set();
 
         // API configuration
         const API_BASE = 'http://localhost:6060/api';
@@ -202,6 +211,10 @@
             document.getElementById('messageText').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') sendMessage();
             });
+            
+            // Typing events
+            document.getElementById('messageText').addEventListener('input', handleTypingStart);
+            document.getElementById('messageText').addEventListener('blur', handleTypingStop);
         }
 
         async function handleLogin(e) {
@@ -300,6 +313,10 @@
                 }
                 groupUnreadCounts[conversationId] = (groupUnreadCounts[conversationId] || 0) + 1;
                 renderUsersAndGroups();
+            });
+
+            socket.on('typing_indicator', (data) => {
+                handleTypingIndicator(data);
             });
 
             socket.on('group_created', (data) => {
@@ -457,6 +474,10 @@
                 groupUnreadCounts[conversation.id] = 0;
             }
             
+            // Clear typing indicator
+            typingUsers.clear();
+            updateTypingIndicator();
+            
             renderUsersAndGroups();
         }
 
@@ -472,6 +493,9 @@
             });
 
             document.getElementById('messageText').value = '';
+            
+            // Stop typing indicator
+            handleTypingStop();
         }
 
         function addMessageToChat(message) {
@@ -603,6 +627,75 @@
                     notification.parentNode.removeChild(notification);
                 }
             }, 5000);
+        }
+
+        function handleTypingStart() {
+            if (!currentConversation) return;
+            
+            if (typingTimeout) {
+                clearTimeout(typingTimeout);
+            }
+            
+            socket.emit('typing_start', {
+                conversationId: currentConversation.id,
+                userId: currentUser.id
+            });
+            
+            typingTimeout = setTimeout(() => {
+                handleTypingStop();
+            }, 3000);
+        }
+
+        function handleTypingStop() {
+            if (!currentConversation) return;
+            
+            if (typingTimeout) {
+                clearTimeout(typingTimeout);
+                typingTimeout = null;
+            }
+            
+            socket.emit('typing_stop', {
+                conversationId: currentConversation.id,
+                userId: currentUser.id
+            });
+        }
+
+        function handleTypingIndicator(data) {
+            if (!currentConversation || data.conversationId !== currentConversation.id) return;
+            
+            if (data.userId === currentUser.id) return;
+            
+            if (data.isTyping) {
+                typingUsers.add(data.userId);
+            } else {
+                typingUsers.delete(data.userId);
+            }
+            
+            updateTypingIndicator();
+        }
+
+        function updateTypingIndicator() {
+            const typingIndicator = document.getElementById('typingIndicator');
+            const typingText = document.getElementById('typingText');
+            
+            if (typingUsers.size > 0) {
+                const typingUserNames = Array.from(typingUsers).map(userId => {
+                    const user = users.find(u => u.id === userId);
+                    return user ? user.name : 'Alguien';
+                });
+                
+                if (typingUserNames.length === 1) {
+                    typingText.textContent = `${typingUserNames[0]} está escribiendo...`;
+                } else if (typingUserNames.length === 2) {
+                    typingText.textContent = `${typingUserNames[0]} y ${typingUserNames[1]} están escribiendo...`;
+                } else {
+                    typingText.textContent = `${typingUserNames[0]} y otros están escribiendo...`;
+                }
+                
+                typingIndicator.classList.remove('hidden');
+            } else {
+                typingIndicator.classList.add('hidden');
+            }
         }
     </script>
 </body>
