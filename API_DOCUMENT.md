@@ -671,6 +671,7 @@ function joinConversation(conversation) {
 - **Escalabilidad**: Redis Adapter implementado
 - **Soporte de archivos**: Subida y visualización de imágenes y documentos
 - **Almacenamiento S3**: Configurado y funcionando con acceso público
+- **Soporte de audio**: Grabación y reproducción de mensajes de voz
 
 #### 🔧 Problemas Resueltos
 - **Conversaciones privadas**: Ahora son persistentes entre sesiones
@@ -874,4 +875,66 @@ class ChatManager {
 const chat = new ChatManager('user123');
 chat.joinConversation('conversation456');
 chat.sendMessage('conversation456', 'Hola!');
-``` 
+```
+
+## Funcionalidades Pendientes de Implementación
+
+### Video Llamadas
+
+#### Nivel de Complejidad: 7/10
+
+#### Tecnología Actual vs Video Llamadas:
+
+##### ✅ Lo que ya tenemos (Ventajas):
+- **WebSocket/Socket.IO**: Para señalización en tiempo real
+- **Redis Adapter**: Para escalabilidad
+- **DynamoDB**: Para persistir datos de llamadas
+- **Frontend HTML5**: Para captura de video/audio
+- **AWS S3**: Para almacenar grabaciones (opcional)
+
+##### 🆕 Lo que necesitaríamos agregar:
+
+#### 1. Backend (Moderado - 5/10)
+- **WebRTC Signaling**: Coordinar conexión P2P
+- **STUN/TURN Servers**: Para NAT traversal
+- **Gestión de llamadas**: Estado, participantes, duración
+- **Eventos WebSocket**: `call_request`, `call_answer`, `call_reject`, `call_end`
+
+#### 2. Frontend (Complejo - 8/10)
+- **WebRTC API**: `getUserMedia`, `RTCPeerConnection`
+- **Captura de video**: Cámara y micrófono
+- **UI compleja**: Botones de llamada, pantalla de video, controles
+- **Señalización**: Intercambio de SDP y ICE candidates
+
+#### 3. Infraestructura (Moderado - 6/10)
+- **STUN Server**: Para descubrimiento de IP pública
+- **TURN Server**: Para relay cuando P2P falla
+- **Servicios externos**: Twilio, Agora, o servidores propios
+
+#### Arquitectura Propuesta:
+
+##### Flujo de Video Llamada:
+1. **Usuario A** hace clic en "Video Llamada"
+2. **Backend** envía `call_request` a Usuario B
+3. **Usuario B** recibe notificación y acepta/rechaza
+4. **WebRTC** establece conexión P2P
+5. **Streams** de video/audio fluyen directamente entre usuarios
+6. **Backend** solo maneja señalización, no el video
+
+##### Ventajas de esta arquitectura:
+- **Escalable**: Video no pasa por el servidor
+- **Baja latencia**: Conexión directa P2P
+- **Aprovecha infraestructura**: WebSocket, Redis, DynamoDB
+- **Costo eficiente**: No necesitas procesar video en servidor
+
+##### Desafíos:
+- **NAT/Firewalls**: Algunos usuarios no pueden hacer P2P
+- **Calidad de red**: Depende de la conexión de los usuarios
+- **UI compleja**: Muchos estados y controles
+- **Compatibilidad**: Diferentes navegadores y dispositivos
+
+#### Tiempo estimado de implementación:
+- **Backend**: 2-3 días
+- **Frontend**: 4-5 días  
+- **Testing**: 2-3 días
+- **Total**: 1-2 semanas

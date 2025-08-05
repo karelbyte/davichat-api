@@ -11,10 +11,11 @@ import { Server, Socket } from 'socket.io';
 import { RedisService } from '../services/redis.service';
 import { DynamoDBService } from '../services/dynamodb.service';
 import { v4 as uuidv4 } from 'uuid';
+import { ConfigService } from '@nestjs/config';
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.SOCKET_CORS_ORIGIN || 'http://localhost:3000',
+    origin: '*',
     credentials: true,
   },
 })
@@ -25,6 +26,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly redisService: RedisService,
     private readonly dynamoDBService: DynamoDBService,
+    private readonly configService: ConfigService,
   ) {}
 
   async handleConnection(client: Socket) {
