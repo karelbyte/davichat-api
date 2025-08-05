@@ -23,9 +23,8 @@ export class FileStorageService {
       this.configService.get('app.fileStorage.type') || 'local';
     this.maxSize =
       this.configService.get('app.fileStorage.maxSize') || 10485760;
-    this.allowedTypes = this.configService.get(
-      'app.fileStorage.allowedTypes',
-    ) || [
+    const configAllowedTypes = this.configService.get('app.fileStorage.allowedTypes');
+    this.allowedTypes = configAllowedTypes || [
       'image/jpeg',
       'image/png',
       'image/gif',
@@ -34,6 +33,16 @@ export class FileStorageService {
       'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'text/plain',
+      'audio/mpeg',
+      'audio/mp3',
+      'audio/wav',
+      'audio/ogg',
+      'audio/m4a',
+      'audio/webm',
+      'audio/wave',
+      'audio/x-wav',
+      'audio/x-pn-wav',
+      'audio/vnd.wave',
     ];
     this.localPath =
       this.configService.get('app.fileStorage.local.path') || './uploads';
@@ -87,17 +96,13 @@ export class FileStorageService {
     fileType: string;
     thumbnailUrl?: string;
   }> {
-    console.log('Starting file upload, storage type:', this.storageType);
-    
     const fileId = uuidv4();
     const fileExtension = path.extname(file.originalname);
     const fileName = `${fileId}${fileExtension}`;
 
     if (this.storageType === 'local') {
-      console.log('Using local storage');
       return this.uploadToLocal(file, fileName);
     } else if (this.storageType === 'aws') {
-      console.log('Using AWS S3 storage');
       return this.uploadToS3(file, fileName);
     } else {
       throw new Error('Invalid storage type');
@@ -140,14 +145,6 @@ export class FileStorageService {
     thumbnailUrl?: string;
   }> {
     try {
-      console.log('Uploading to S3:', {
-        bucket: this.s3Bucket,
-        fileName,
-        fileSize: file.size,
-        fileType: file.mimetype,
-        storageType: this.storageType
-      });
-
       const command = new PutObjectCommand({
         Bucket: this.s3Bucket,
         Key: fileName,
@@ -156,7 +153,6 @@ export class FileStorageService {
       });
 
       await this.s3Client.send(command);
-      console.log('File uploaded successfully to S3');
 
       const fileUrl = `https://${this.s3Bucket}.s3.amazonaws.com/${fileName}`;
       const thumbnailUrl = this.isImage(file.mimetype) ? fileUrl : undefined;
@@ -193,6 +189,10 @@ export class FileStorageService {
 
   private isImage(mimeType: string): boolean {
     return mimeType.startsWith('image/');
+  }
+
+  private isAudio(mimeType: string): boolean {
+    return mimeType.startsWith('audio/');
   }
 
   getFileUrl(fileName: string): string {

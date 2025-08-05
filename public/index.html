@@ -121,7 +121,10 @@
                         <button id="attachFileBtn" class="bg-gray-500 text-white px-3 py-2 rounded-md hover:bg-gray-600">
                             📎
                         </button>
-                        <input type="file" id="fileInput" class="hidden" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain">
+                        <button id="recordAudioBtn" class="bg-red-500 text-white px-3 py-2 rounded-md hover:bg-red-600">
+                            🎤
+                        </button>
+                        <input type="file" id="fileInput" class="hidden" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,audio/*">
                         <button id="sendMessageBtn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
                             Enviar
                         </button>
@@ -212,6 +215,9 @@
         let typingTimeout = null;
         let typingUsers = new Set();
         let selectedUsersToAdd = [];
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
 
         // API configuration
         const API_BASE = 'http://localhost:6060/api';
@@ -252,6 +258,9 @@
                 document.getElementById('fileInput').click();
             });
             document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+            
+            // Audio recording
+            document.getElementById('recordAudioBtn').addEventListener('click', handleAudioRecording);
             
             // Typing events
             document.getElementById('messageText').addEventListener('input', handleTypingStart);
@@ -596,7 +605,16 @@
                     const fileData = JSON.parse(message.content);
                     messageContent = renderFileMessage(fileData, isOwnMessage);
                 } catch (error) {
+                    console.error('Error parsing file message:', error);
                     messageContent = '<div class="text-sm">Error al cargar archivo</div>';
+                }
+            } else if (message.messageType === 'audio') {
+                try {
+                    const fileData = JSON.parse(message.content);
+                    messageContent = renderFileMessage(fileData, isOwnMessage);
+                } catch (error) {
+                    console.error('Error parsing audio message:', error);
+                    messageContent = '<div class="text-sm">Error al cargar audio</div>';
                 }
             } else {
                 messageContent = `<div class="text-sm">${message.content}</div>`;
@@ -616,6 +634,7 @@
 
         function renderFileMessage(fileData, isOwnMessage) {
             const isImage = fileData.fileType.startsWith('image/');
+            const isAudio = fileData.fileType.startsWith('audio/');
             const fileSize = formatFileSize(fileData.fileSize);
             
             if (isImage) {
@@ -625,6 +644,22 @@
                     </div>
                     <div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'}">
                         📎 ${fileData.fileName} (${fileSize})
+                    </div>
+                `;
+            } else if (isAudio) {
+                return `
+                    <div class="bg-gray-100 rounded-lg p-3">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <div class="text-2xl">🎵</div>
+                            <div class="flex-1">
+                                <div class="text-sm font-medium">${fileData.fileName}</div>
+                                <div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'}">${fileSize}</div>
+                            </div>
+                        </div>
+                        <audio controls class="w-full h-10 rounded">
+                            <source src="${fileData.fileUrl}" type="${fileData.fileType}">
+                            Tu navegador no soporta el elemento de audio.
+                        </audio>
                     </div>
                 `;
             } else {
@@ -897,6 +932,89 @@
             } catch (error) {
                 console.error('Error adding participants:', error);
                 alert('Error al añadir participantes');
+            }
+        }
+
+        async function handleAudioRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                isRecording = true;
+
+                const recordBtn = document.getElementById('recordAudioBtn');
+                recordBtn.textContent = '⏹️';
+                recordBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                recordBtn.classList.add('bg-gray-500', 'hover:bg-gray-600');
+
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    await uploadAudioFile(audioBlob);
+                    
+                    stream.getTracks().forEach(track => track.stop());
+                    resetRecordingUI();
+                };
+
+                mediaRecorder.start();
+                showNotification('Grabando audio... Haz clic en el botón para detener');
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                alert('Error al acceder al micrófono. Verifica los permisos.');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+        }
+
+        function resetRecordingUI() {
+            const recordBtn = document.getElementById('recordAudioBtn');
+            recordBtn.textContent = '🎤';
+            recordBtn.classList.remove('bg-gray-500', 'hover:bg-gray-600');
+            recordBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+        }
+
+        async function uploadAudioFile(audioBlob) {
+            try {
+                const formData = new FormData();
+                formData.append('file', audioBlob, 'audio.wav');
+
+                const response = await axios.post(`${API_BASE}/upload`, formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                });
+
+                const fileData = response.data;
+                socket.emit('send_message', {
+                    conversationId: currentConversation.id,
+                    senderId: currentUser.id,
+                    content: JSON.stringify(fileData),
+                    messageType: 'audio'
+                });
+
+                showNotification('Audio enviado');
+            } catch (error) {
+                console.error('Error uploading audio:', error);
+                if (error.response) {
+                    console.error('Server response:', error.response.data);
+                }
+                alert('Error al subir el audio: ' + (error.response?.data?.message || error.message));
             }
         }
     </script>
