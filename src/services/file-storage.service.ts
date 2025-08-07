@@ -23,7 +23,9 @@ export class FileStorageService {
       this.configService.get('app.fileStorage.type') || 'local';
     this.maxSize =
       this.configService.get('app.fileStorage.maxSize') || 10485760;
-    const configAllowedTypes = this.configService.get('app.fileStorage.allowedTypes');
+    const configAllowedTypes = this.configService.get(
+      'app.fileStorage.allowedTypes',
+    );
     this.allowedTypes = configAllowedTypes || [
       'image/jpeg',
       'image/png',
@@ -53,10 +55,22 @@ export class FileStorageService {
       this.s3Client = new S3Client({
         region:
           this.configService.get('app.fileStorage.s3.region') || 'us-east-1',
-        credentials: {
-          accessKeyId:'AKIA537PPLJFAJ45R5F6', // this.configService.get('app.dynamodb.accessKeyId') || 'key',
-          secretAccessKey: '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' // this.configService.get('app.dynamodb.secretAccessKey') || 'secret',
-        },
+        ...(this.configService.get('app.nodeEnv') !== 'production'
+          ? {
+              credentials: {
+                accessKeyId:
+                  this.configService.get('app.nodeEnv') === 'production'
+                    ? this.configService.get('app.dynamodb.accessKeyId') ||
+                      'key'
+                    : 'key',
+                secretAccessKey:
+                  this.configService.get('app.nodeEnv') === 'production'
+                    ? this.configService.get('app.dynamodb.secretAccessKey') ||
+                      'secret'
+                    : 'secret',
+              },
+            }
+          : {}),
       });
     }
 
