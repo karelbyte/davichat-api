@@ -21,11 +21,18 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
 
   async onModuleInit() {
     try {
-      await this.redisClient.connect();
       const redisUrl = this.configService.get('app.redis.url');
       const redisHost = this.configService.get('app.redis.host');
       const redisPort = this.configService.get('app.redis.port');
-
+      
+      console.log('🔄 Intentando conectar a Redis...');
+      console.log(`   URL: ${redisUrl || 'No configurada'}`);
+      console.log(`   Host: ${redisHost || 'No configurado'}`);
+      console.log(`   Puerto: ${redisPort || 'No configurado'}`);
+      console.log(`   TLS: ${this.configService.get('app.nodeEnv') === 'production' ? 'Habilitado' : 'Deshabilitado'}`);
+      
+      await this.redisClient.connect();
+      
       console.log('✅ Conectado a servidor Redis');
       console.log(`   URL: ${redisUrl || 'No configurada'}`);
       console.log(`   Host: ${redisHost || 'No configurado'}`);
@@ -35,35 +42,68 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       console.error(`   Tipo: ${error.constructor.name}`);
       console.error(`   Mensaje: ${error.message}`);
       console.error(`   URL: ${this.configService.get('app.redis.url')}`);
-      throw error;
+      
+      // No lanzar error para evitar que la aplicación se detenga
+      console.warn('⚠️ Continuando sin Redis - algunas funcionalidades pueden no estar disponibles');
+      console.warn('   Para habilitar Redis, configura las variables de entorno:');
+      console.warn('   - REDIS_URL');
+      console.warn('   - REDIS_HOST');
+      console.warn('   - REDIS_PORT');
+      console.warn('   - REDIS_PASSWORD (opcional)');
     }
   }
 
   async setUser(userId: string, userData: any): Promise<void> {
-    await this.redisClient.set(`user:${userId}`, JSON.stringify(userData));
-    await this.redisClient.expire(`user:${userId}`, 3600);
+    try {
+      await this.redisClient.set(`user:${userId}`, JSON.stringify(userData));
+      await this.redisClient.expire(`user:${userId}`, 3600);
+    } catch (error) {
+      console.warn(`⚠️ Error en setUser: ${error.message}`);
+    }
   }
 
   async getUser(userId: string): Promise<any> {
-    const userData = await this.redisClient.get(`user:${userId}`);
-    return userData ? JSON.parse(userData) : null;
+    try {
+      const userData = await this.redisClient.get(`user:${userId}`);
+      return userData ? JSON.parse(userData) : null;
+    } catch (error) {
+      console.warn(`⚠️ Error en getUser: ${error.message}`);
+      return null;
+    }
   }
 
   async setUserOnline(userId: string): Promise<void> {
-    await this.redisClient.sAdd('online_users', userId);
+    try {
+      await this.redisClient.sAdd('online_users', userId);
+    } catch (error) {
+      console.warn(`⚠️ Error en setUserOnline: ${error.message}`);
+    }
   }
 
   async setUserOffline(userId: string): Promise<void> {
-    await this.redisClient.sRem('online_users', userId);
+    try {
+      await this.redisClient.sRem('online_users', userId);
+    } catch (error) {
+      console.warn(`⚠️ Error en setUserOffline: ${error.message}`);
+    }
   }
 
   async getOnlineUsers(): Promise<string[]> {
-    return await this.redisClient.sMembers('online_users');
+    try {
+      return await this.redisClient.sMembers('online_users');
+    } catch (error) {
+      console.warn(`⚠️ Error en getOnlineUsers: ${error.message}`);
+      return [];
+    }
   }
 
   async deleteUser(userId: string): Promise<void> {
-    await this.redisClient.del(`user:${userId}`);
-    await this.redisClient.sRem('online_users', userId);
+    try {
+      await this.redisClient.del(`user:${userId}`);
+      await this.redisClient.sRem('online_users', userId);
+    } catch (error) {
+      console.warn(`⚠️ Error en deleteUser: ${error.message}`);
+    }
   }
 
   async onModuleDestroy() {
