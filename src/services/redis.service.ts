@@ -24,21 +24,17 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       const redisUrl = this.configService.get('app.redis.url');
       const redisHost = this.configService.get('app.redis.host');
       const redisPort = this.configService.get('app.redis.port');
-      
+
       console.log('🔄 Intentando conectar a Redis...');
       console.log(`   URL: ${redisUrl || 'No configurada'}`);
       console.log(`   Host: ${redisHost || 'No configurado'}`);
       console.log(`   Puerto: ${redisPort || 'No configurado'}`);
-      console.log(`   TLS: ${this.configService.get('app.nodeEnv') === 'production' ? 'Habilitado' : 'Deshabilitado'}`);
-      
-      // Agregar timeout para la conexión
-      const connectPromise = this.redisClient.connect();
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout al conectar con Redis')), 10000)
+      console.log(
+        `   TLS: ${this.configService.get('app.nodeEnv') === 'production' ? 'Habilitado' : 'Deshabilitado'}`,
       );
 
-      await Promise.race([connectPromise, timeoutPromise]);
-      
+      await this.redisClient.connect();
+
       console.log('✅ Conectado a servidor Redis');
       console.log(`   URL: ${redisUrl || 'No configurada'}`);
       console.log(`   Host: ${redisHost || 'No configurado'}`);
@@ -48,10 +44,14 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       console.error(`   Tipo: ${error.constructor.name}`);
       console.error(`   Mensaje: ${error.message}`);
       console.error(`   URL: ${this.configService.get('app.redis.url')}`);
-      
+
       // No lanzar error para evitar que la aplicación se detenga
-      console.warn('⚠️ Continuando sin Redis - algunas funcionalidades pueden no estar disponibles');
-      console.warn('   Para habilitar Redis, configura las variables de entorno:');
+      console.warn(
+        '⚠️ Continuando sin Redis - algunas funcionalidades pueden no estar disponibles',
+      );
+      console.warn(
+        '   Para habilitar Redis, configura las variables de entorno:',
+      );
       console.warn('   - REDIS_URL');
       console.warn('   - REDIS_HOST');
       console.warn('   - REDIS_PORT');
