@@ -44,7 +44,9 @@ export class DynamoDBService implements OnModuleInit {
       console.log(`   Endpoint: ${endpoint || 'AWS Cloud'}`);
       console.log(`   Access Key ID: ${accessKeyId ? `${accessKeyId.substring(0, 8)}...` : 'No configurado'}`);
       
+      console.log('🔄 Verificando/creando tablas de DynamoDB...');
       await this.createTablesIfNotExist();
+      console.log('✅ Tablas de DynamoDB verificadas/creadas correctamente');
     } catch (error) {
       console.error('❌ Error conectando a DynamoDB:');
       console.error(`   Tipo: ${error.constructor.name}`);
@@ -101,7 +103,9 @@ export class DynamoDBService implements OnModuleInit {
     ];
 
     for (const table of tables) {
+      console.log(`   📋 Verificando tabla: ${table.name}`);
       await this.createTableIfNotExists(table);
+      console.log(`   ✅ Tabla ${table.name} lista`);
     }
   }
 
@@ -110,8 +114,10 @@ export class DynamoDBService implements OnModuleInit {
       await this.dynamoClient.send(
         new DescribeTableCommand({ TableName: tableConfig.name }),
       );
+      console.log(`      📋 Tabla ${tableConfig.name} ya existe`);
     } catch (error) {
       if (error.name === 'ResourceNotFoundException') {
+        console.log(`      🆕 Creando tabla ${tableConfig.name}...`);
         const createCommand = new CreateTableCommand({
           TableName: tableConfig.name,
           KeySchema: tableConfig.keySchema,
@@ -120,6 +126,10 @@ export class DynamoDBService implements OnModuleInit {
           BillingMode: 'PAY_PER_REQUEST',
         });
         await this.dynamoClient.send(createCommand);
+        console.log(`      ✅ Tabla ${tableConfig.name} creada exitosamente`);
+      } else {
+        console.error(`      ❌ Error verificando tabla ${tableConfig.name}:`, error.message);
+        throw error;
       }
     }
   }
