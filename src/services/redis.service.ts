@@ -31,7 +31,13 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       console.log(`   Puerto: ${redisPort || 'No configurado'}`);
       console.log(`   TLS: ${this.configService.get('app.nodeEnv') === 'production' ? 'Habilitado' : 'Deshabilitado'}`);
       
-      await this.redisClient.connect();
+      // Agregar timeout para la conexión
+      const connectPromise = this.redisClient.connect();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout al conectar con Redis')), 10000)
+      );
+
+      await Promise.race([connectPromise, timeoutPromise]);
       
       console.log('✅ Conectado a servidor Redis');
       console.log(`   URL: ${redisUrl || 'No configurada'}`);
