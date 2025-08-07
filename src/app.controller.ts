@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Res, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Res, UseInterceptors, UploadedFile, BadRequestException, Delete } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AppService } from './app.service';
 import { DynamoDBService } from './services/dynamodb.service';
@@ -148,5 +148,53 @@ export class AppController {
 
     const fileData = await this.fileStorageService.uploadFile(file);
     return fileData;
+  }
+
+  @Get('/api/users')
+  async getAllUsers() {
+    return await this.dynamoDBService.getAllUsers();
+  }
+
+  @Delete('/api/users/:id')
+  async deleteUser(@Param('id') id: string) {
+    await this.dynamoDBService.deleteUser(id);
+    return { message: 'Usuario eliminado correctamente' };
+  }
+
+  @Get('/api/conversations')
+  async getAllConversations() {
+    return await this.dynamoDBService.getAllConversations();
+  }
+
+  @Delete('/api/conversations/:id')
+  async deleteConversation(@Param('id') id: string) {
+    await this.dynamoDBService.deleteConversation(id);
+    return { message: 'Conversación eliminada correctamente' };
+  }
+
+  @Get('/api/messages')
+  async getAllMessages() {
+    return await this.dynamoDBService.getAllMessages();
+  }
+
+  @Delete('/api/messages/:id')
+  async deleteMessage(@Param('id') id: string) {
+    await this.dynamoDBService.deleteMessage(id);
+    return { message: 'Mensaje eliminado correctamente' };
+  }
+
+  @Get('/admin')
+  serveAdmin(@Res() res: Response) {
+    const adminPath = path.join(__dirname, '../public/admin.html');
+    console.log('Checking admin path:', adminPath);
+    console.log('Admin exists:', fs.existsSync(adminPath));
+    
+    if (fs.existsSync(adminPath)) {
+      console.log('Serving admin.html');
+      res.sendFile(adminPath);
+    } else {
+      console.log('Admin not found, sending fallback message');
+      res.send('Admin panel not found');
+    }
   }
 }

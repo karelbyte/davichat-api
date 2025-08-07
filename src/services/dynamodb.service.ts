@@ -397,4 +397,42 @@ export class DynamoDBService implements OnModuleInit {
       return null;
     }
   }
+
+  async getAllConversations(): Promise<any[]> {
+    const command = new ScanCommand({
+      TableName: 'conversations',
+    });
+    const result = await this.client.send(command);
+    return result.Items || [];
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: conversations - Operation: DELETE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
+    const command = new DeleteCommand({
+      TableName: 'conversations',
+      Key: { id: conversationId },
+    });
+    await this.client.send(command);
+  }
+
+  async getAllMessages(): Promise<any[]> {
+    const command = new ScanCommand({
+      TableName: 'messages',
+    });
+    const result = await this.client.send(command);
+    return result.Items || [];
+  }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: messages - Operation: DELETE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
+    const command = new DeleteCommand({
+      TableName: 'messages',
+      Key: { id: messageId },
+    });
+    await this.client.send(command);
+  }
 }

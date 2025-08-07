@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DaviChat - Back Office</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .section { margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        .section h2 { margin-top: 0; color: #333; }
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .data-table th, .data-table td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        .data-table th { background-color: #f5f5f5; }
+        .btn { padding: 8px 16px; margin: 2px; border: none; border-radius: 3px; cursor: pointer; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+        .loading { text-align: center; padding: 20px; }
+        .error { color: #dc3545; padding: 10px; background-color: #f8d7da; border-radius: 3px; }
+        .success { color: #155724; padding: 10px; background-color: #d4edda; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DaviChat - Back Office</h1>
+        
+        <div class="section">
+            <h2>👥 Usuarios</h2>
+            <button class="btn btn-primary" onclick="loadUsers()">Cargar Usuarios</button>
+            <div id="users-container"></div>
+        </div>
+
+        <div class="section">
+            <h2>💬 Conversaciones</h2>
+            <button class="btn btn-primary" onclick="loadConversations()">Cargar Conversaciones</button>
+            <div id="conversations-container"></div>
+        </div>
+
+        <div class="section">
+            <h2>📨 Mensajes</h2>
+            <button class="btn btn-primary" onclick="loadMessages()">Cargar Mensajes</button>
+            <div id="messages-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:6060/api';
+
+        async function loadUsers() {
+            const container = document.getElementById('users-container');
+            container.innerHTML = '<div class="loading">Cargando usuarios...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/users`);
+                const users = await response.json();
+                
+                if (users.length === 0) {
+                    container.innerHTML = '<p>No hay usuarios registrados</p>';
+                    return;
+                }
+
+                let html = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Email</th>
+                                <th>Creado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                users.forEach(user => {
+                    html += `
+                        <tr>
+                            <td>${user.id || 'N/A'}</td>
+                            <td>${user.name || 'N/A'}</td>
+                            <td>${user.email || 'N/A'}</td>
+                            <td>${user.createdAt ? new Date(user.createdAt).toLocaleString() : 'N/A'}</td>
+                            <td>
+                                <button class="btn btn-danger" onclick="deleteUser('${user.id}')">Eliminar</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error al cargar usuarios: ${error.message}</div>`;
+            }
+        }
+
+        async function loadConversations() {
+            const container = document.getElementById('conversations-container');
+            container.innerHTML = '<div class="loading">Cargando conversaciones...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/conversations`);
+                const conversations = await response.json();
+                
+                if (conversations.length === 0) {
+                    container.innerHTML = '<p>No hay conversaciones</p>';
+                    return;
+                }
+
+                let html = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Tipo</th>
+                                <th>Nombre</th>
+                                <th>Descripción</th>
+                                <th>Creado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                conversations.forEach(conv => {
+                    html += `
+                        <tr>
+                            <td>${conv.id || 'N/A'}</td>
+                            <td>${conv.type || 'N/A'}</td>
+                            <td>${conv.name || 'N/A'}</td>
+                            <td>${conv.description || 'N/A'}</td>
+                            <td>${conv.createdAt ? new Date(conv.createdAt).toLocaleString() : 'N/A'}</td>
+                            <td>
+                                <button class="btn btn-danger" onclick="deleteConversation('${conv.id}')">Eliminar</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error al cargar conversaciones: ${error.message}</div>`;
+            }
+        }
+
+        async function loadMessages() {
+            const container = document.getElementById('messages-container');
+            container.innerHTML = '<div class="loading">Cargando mensajes...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/messages`);
+                const messages = await response.json();
+                
+                if (messages.length === 0) {
+                    container.innerHTML = '<p>No hay mensajes</p>';
+                    return;
+                }
+
+                let html = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Conversación</th>
+                                <th>Remitente</th>
+                                <th>Contenido</th>
+                                <th>Tipo</th>
+                                <th>Fecha</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                messages.forEach(msg => {
+                    html += `
+                        <tr>
+                            <td>${msg.id || 'N/A'}</td>
+                            <td>${msg.conversationId || 'N/A'}</td>
+                            <td>${msg.senderId || 'N/A'}</td>
+                            <td>${msg.content ? msg.content.substring(0, 50) + '...' : 'N/A'}</td>
+                            <td>${msg.messageType || 'N/A'}</td>
+                            <td>${msg.timestamp ? new Date(msg.timestamp).toLocaleString() : 'N/A'}</td>
+                            <td>
+                                <button class="btn btn-danger" onclick="deleteMessage('${msg.id}')">Eliminar</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (error) {
+                container.innerHTML = `<div class="error">Error al cargar mensajes: ${error.message}</div>`;
+            }
+        }
+
+        async function deleteUser(userId) {
+            if (!confirm('¿Estás seguro de que quieres eliminar este usuario?')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/users/${userId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showMessage('Usuario eliminado correctamente', 'success');
+                    loadUsers();
+                } else {
+                    showMessage('Error al eliminar usuario', 'error');
+                }
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteConversation(conversationId) {
+            if (!confirm('¿Estás seguro de que quieres eliminar esta conversación?')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/conversations/${conversationId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showMessage('Conversación eliminada correctamente', 'success');
+                    loadConversations();
+                } else {
+                    showMessage('Error al eliminar conversación', 'error');
+                }
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteMessage(messageId) {
+            if (!confirm('¿Estás seguro de que quieres eliminar este mensaje?')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/messages/${messageId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showMessage('Mensaje eliminado correctamente', 'success');
+                    loadMessages();
+                } else {
+                    showMessage('Error al eliminar mensaje', 'error');
+                }
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function showMessage(message, type) {
+            const div = document.createElement('div');
+            div.className = type;
+            div.textContent = message;
+            div.style.position = 'fixed';
+            div.style.top = '20px';
+            div.style.right = '20px';
+            div.style.zIndex = '1000';
+            document.body.appendChild(div);
+            
+            setTimeout(() => {
+                document.body.removeChild(div);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
