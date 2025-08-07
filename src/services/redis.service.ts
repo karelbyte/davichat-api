@@ -1,9 +1,9 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient } from 'redis';
 
 @Injectable()
-export class RedisService implements OnModuleDestroy {
+export class RedisService implements OnModuleDestroy, OnModuleInit {
   private redisClient: any;
 
   constructor(private configService: ConfigService) {
@@ -11,7 +11,26 @@ export class RedisService implements OnModuleDestroy {
       url: this.configService.get('app.redis.url'),
       password: this.configService.get('app.redis.password'),
     });
-    this.redisClient.connect();
+  }
+
+  async onModuleInit() {
+    try {
+      await this.redisClient.connect();
+      const redisUrl = this.configService.get('app.redis.url');
+      const redisHost = this.configService.get('app.redis.host');
+      const redisPort = this.configService.get('app.redis.port');
+      
+      console.log('✅ Conectado a servidor Redis');
+      console.log(`   URL: ${redisUrl || 'No configurada'}`);
+      console.log(`   Host: ${redisHost || 'No configurado'}`);
+      console.log(`   Puerto: ${redisPort || 'No configurado'}`);
+    } catch (error) {
+      console.error('❌ Error conectando a Redis:');
+      console.error(`   Tipo: ${error.constructor.name}`);
+      console.error(`   Mensaje: ${error.message}`);
+      console.error(`   URL: ${this.configService.get('app.redis.url')}`);
+      throw error;
+    }
   }
 
   async setUser(userId: string, userData: any): Promise<void> {

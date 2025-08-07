@@ -34,7 +34,25 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    await this.createTablesIfNotExist();
+    try {
+      const region = this.configService.get('app.dynamodb.region') || 'us-east-1';
+      const endpoint = this.configService.get('app.dynamodb.endpoint');
+      const accessKeyId = this.configService.get('app.dynamodb.accessKeyId');
+      
+      console.log('✅ Conectado a servidor DynamoDB');
+      console.log(`   Región: ${region}`);
+      console.log(`   Endpoint: ${endpoint || 'AWS Cloud'}`);
+      console.log(`   Access Key ID: ${accessKeyId ? `${accessKeyId.substring(0, 8)}...` : 'No configurado'}`);
+      
+      await this.createTablesIfNotExist();
+    } catch (error) {
+      console.error('❌ Error conectando a DynamoDB:');
+      console.error(`   Tipo: ${error.constructor.name}`);
+      console.error(`   Mensaje: ${error.message}`);
+      console.error(`   Región: ${this.configService.get('app.dynamodb.region')}`);
+      console.error(`   Endpoint: ${this.configService.get('app.dynamodb.endpoint')}`);
+      throw error;
+    }
   }
 
   private async createTablesIfNotExist() {
