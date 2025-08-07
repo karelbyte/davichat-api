@@ -9,7 +9,7 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
   constructor(private configService: ConfigService) {
     this.redisClient = createClient({
       url: this.configService.get('app.redis.url'),
-      password: this.configService.get('app.redis.password'),
+      /*password: this.configService.get('app.redis.password'),
       ...(this.configService.get('app.nodeEnv') === 'production'
         ? {
             socket: {
@@ -17,7 +17,7 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
               rejectUnauthorized: true,
             },
           }
-        : {}),
+        : {}),*/
     });
   }
 
