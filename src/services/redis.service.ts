@@ -10,6 +10,10 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
     this.redisClient = createClient({
       url: this.configService.get('app.redis.url'),
       password: this.configService.get('app.redis.password'),
+      socket: {
+        tls: true,
+        rejectUnauthorized: false,
+      },
     });
   }
 
