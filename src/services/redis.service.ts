@@ -10,10 +10,12 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
     this.redisClient = createClient({
       url: this.configService.get('app.redis.url'),
       password: this.configService.get('app.redis.password'),
-      socket: {
-        tls: true,
-        rejectUnauthorized: false,
-      },
+      ...(this.configService.get('app.nodeEnv') === 'production'
+        ? {
+            tls: true,
+            rejectUnauthorized: false,
+          }
+        : {}),
     });
   }
 
@@ -23,7 +25,7 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       const redisUrl = this.configService.get('app.redis.url');
       const redisHost = this.configService.get('app.redis.host');
       const redisPort = this.configService.get('app.redis.port');
-      
+
       console.log('✅ Conectado a servidor Redis');
       console.log(`   URL: ${redisUrl || 'No configurada'}`);
       console.log(`   Host: ${redisHost || 'No configurado'}`);
@@ -67,4 +69,4 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
   async onModuleDestroy() {
     await this.redisClient.quit();
   }
-} 
+}
