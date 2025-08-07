@@ -12,8 +12,10 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       password: this.configService.get('app.redis.password'),
       ...(this.configService.get('app.nodeEnv') === 'production'
         ? {
-            tls: true,
-            rejectUnauthorized: true,
+            socket: {
+              tls: true,
+              rejectUnauthorized: true,
+            },
           }
         : {}),
     });
