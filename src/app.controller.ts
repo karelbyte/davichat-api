@@ -20,9 +20,13 @@ export class AppController {
   @Get()
   serveIndex(@Res() res: Response) {
     const indexPath = path.join(__dirname, '../public/index.html');
+    console.log('Checking index path:', indexPath);
+    console.log('Index exists:', fs.existsSync(indexPath));
     if (fs.existsSync(indexPath)) {
+      console.log('Serving index.html');
       res.sendFile(indexPath);
     } else {
+      console.log('Index not found, sending fallback message');
       res.send('Chat API running');
     }
   }
