@@ -40,15 +40,18 @@ export class DynamoDBService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      const region = this.configService.get('app.dynamodb.region') || 'us-east-1';
+      const region =
+        this.configService.get('app.dynamodb.region') || 'us-east-1';
       const endpoint = this.configService.get('app.dynamodb.endpoint');
       const accessKeyId = this.configService.get('app.dynamodb.accessKeyId');
-      
+
       console.log('✅ Conectado a servidor DynamoDB');
       console.log(`   Región: ${region}`);
       console.log(`   Endpoint: ${endpoint || 'AWS Cloud'}`);
-      console.log(`   Access Key ID: ${accessKeyId ? `${accessKeyId.substring(0, 8)}...` : 'No configurado'}`);
-      
+      console.log(
+        `   Access Key ID: ${accessKeyId ? `${accessKeyId.substring(0, 8)}...` : 'No configurado'}`,
+      );
+
       console.log('🔄 Verificando/creando tablas de DynamoDB...');
       await this.createTablesIfNotExist();
       console.log('✅ Tablas de DynamoDB verificadas/creadas correctamente');
@@ -56,8 +59,12 @@ export class DynamoDBService implements OnModuleInit {
       console.error('❌ Error conectando a DynamoDB:');
       console.error(`   Tipo: ${error.constructor.name}`);
       console.error(`   Mensaje: ${error.message}`);
-      console.error(`   Región: ${this.configService.get('app.dynamodb.region')}`);
-      console.error(`   Endpoint: ${this.configService.get('app.dynamodb.endpoint')}`);
+      console.error(
+        `   Región: ${this.configService.get('app.dynamodb.region')}`,
+      );
+      console.error(
+        `   Endpoint: ${this.configService.get('app.dynamodb.endpoint')}`,
+      );
       throw error;
     }
   }
@@ -133,13 +140,19 @@ export class DynamoDBService implements OnModuleInit {
         await this.dynamoClient.send(createCommand);
         console.log(`      ✅ Tabla ${tableConfig.name} creada exitosamente`);
       } else {
-        console.error(`      ❌ Error verificando tabla ${tableConfig.name}:`, error.message);
+        console.error(
+          `      ❌ Error verificando tabla ${tableConfig.name}:`,
+          error.message,
+        );
         throw error;
       }
     }
   }
 
   async createUser(userData: any): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: users - Operation: CREATE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
     const command = new PutCommand({
       TableName: 'users',
       Item: {
@@ -161,6 +174,9 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async updateUser(userId: string, updateData: any): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: users - Operation: UPDATE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
     let updateExpression = 'SET updatedAt = :updatedAt';
     const expressionAttributeValues: any = {
       ':updatedAt': new Date().toISOString(),
@@ -183,6 +199,9 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async deleteUser(userId: string): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: users - Operation: DELETE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
     const command = new DeleteCommand({
       TableName: 'users',
       Key: { id: userId },
@@ -199,6 +218,9 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async createConversation(conversationData: any): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: conversations - Operation: CREATE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
     const command = new PutCommand({
       TableName: 'conversations',
       Item: {
@@ -224,6 +246,9 @@ export class DynamoDBService implements OnModuleInit {
     userId: string,
     participantData: any,
   ): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: conversation_participants - Operation: CREATE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
     const command = new PutCommand({
       TableName: 'conversation_participants',
       Item: {
@@ -249,6 +274,9 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async createMessage(messageData: any): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: messages - Operation: CREATE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
     const command = new PutCommand({
       TableName: 'messages',
       Item: {
@@ -277,6 +305,9 @@ export class DynamoDBService implements OnModuleInit {
     unreadCount: number,
     lastReadAt: string,
   ): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: conversation_participants - Operation: UPDATE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
     const command = new UpdateCommand({
       TableName: 'conversation_participants',
       Key: {
@@ -340,13 +371,13 @@ export class DynamoDBService implements OnModuleInit {
     }
   }
 
-    async findPrivateConversation(
+  async findPrivateConversation(
     userId1: string,
     userId2: string,
   ): Promise<any> {
     try {
       const user1Conversations = await this.getUserConversations(userId1);
-      
+
       for (const conversation of user1Conversations) {
         if (conversation.type === 'private') {
           const participants = await this.getConversationParticipants(
