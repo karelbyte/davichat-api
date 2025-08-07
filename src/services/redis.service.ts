@@ -13,7 +13,7 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       ...(this.configService.get('app.nodeEnv') === 'production'
         ? {
             tls: true,
-            rejectUnauthorized: FileSystemWritableFileStream,
+            rejectUnauthorized: true,
           }
         : {}),
     });
