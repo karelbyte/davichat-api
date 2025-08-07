@@ -2,7 +2,6 @@ module.exports = {
   apps: [{
     name: "davichat-api",
     script: "dist/main.js",
-    node_args: "-r dotenv/config",
     instances: 1,
     exec_mode: "cluster",
     env: {
@@ -30,9 +29,6 @@ module.exports = {
     
     // Configuración de monitoreo
     watch: false,
-    ignore_watch: ["node_modules", "logs", "uploads"],
-    
-    // Configuración de variables de entorno específicas
-    env_file: ".env"
+    ignore_watch: ["node_modules", "logs", "uploads"]
   }]
 };
