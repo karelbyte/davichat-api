@@ -429,10 +429,30 @@ export class DynamoDBService implements OnModuleInit {
     console.log(
       `📝 DynamoDB Write - Table: messages - Operation: DELETE - Region: ${this.configService.get('app.dynamodb.region')}`,
     );
-    const command = new DeleteCommand({
+    
+    // Primero necesitamos obtener el mensaje para saber su conversationId
+    const getCommand = new GetCommand({
       TableName: 'messages',
       Key: { id: messageId },
     });
-    await this.client.send(command);
+    
+    try {
+      const message = await this.client.send(getCommand);
+      if (!message.Item) {
+        throw new Error('Mensaje no encontrado');
+      }
+      
+      const deleteCommand = new DeleteCommand({
+        TableName: 'messages',
+        Key: { 
+          id: messageId,
+          conversationId: message.Item.conversationId 
+        },
+      });
+      await this.client.send(deleteCommand);
+    } catch (error) {
+      console.error('Error eliminando mensaje:', error);
+      throw error;
+    }
   }
 }
