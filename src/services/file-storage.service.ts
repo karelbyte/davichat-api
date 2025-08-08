@@ -55,7 +55,7 @@ export class FileStorageService {
       this.s3Client = new S3Client({
         region:
           this.configService.get('app.fileStorage.s3.region') || 'us-east-1',
-        ...(this.configService.get('app.nodeEnv') !== 'production'
+        /*...(this.configService.get('app.nodeEnv') !== 'production'
           ? {
               credentials: {
                 accessKeyId:
@@ -70,7 +70,7 @@ export class FileStorageService {
                     : 'secret',
               },
             }
-          : {}),
+          : {}),*/
       });
     }
 

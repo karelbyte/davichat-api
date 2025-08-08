@@ -23,7 +23,7 @@ export class DynamoDBService implements OnModuleInit {
   constructor(private configService: ConfigService) {
     this.dynamoClient = new DynamoDBClient({
       region: this.configService.get('app.dynamodb.region') || 'us-east-1',
-      ...(this.configService.get('app.nodeEnv') !== 'production'
+      /*...(this.configService.get('app.nodeEnv') !== 'production'
         ? {
             credentials: {
               accessKeyId:
@@ -32,7 +32,7 @@ export class DynamoDBService implements OnModuleInit {
                 this.configService.get('app.dynamodb.secretAccessKey') || '',
             },
           }
-        : {}),
+        : {}),*/
       endpoint: this.configService.get('app.dynamodb.endpoint'),
     });
     this.client = DynamoDBDocumentClient.from(this.dynamoClient);
