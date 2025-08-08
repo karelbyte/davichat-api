@@ -45,7 +45,14 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:6060/api';
+        // Configuración de URLs - se detectan automáticamente
+        const currentProtocol = window.location.protocol;
+        const currentHost = window.location.hostname;
+        const currentPort = '6060'; // Puerto fijo para la API
+        console.log(currentProtocol, currentHost, currentPort);
+        
+        const API_BASE = `${currentProtocol}//${currentHost}:${currentPort}/api`;
+        const SOCKET_URL = `${currentProtocol}//${currentHost}:${currentPort}`;
 
         async function loadUsers() {
             const container = document.getElementById('users-container');
