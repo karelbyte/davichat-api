@@ -16,7 +16,20 @@ import { ConfigService } from '@nestjs/config';
 @WebSocketGateway({
   path: '/ws',
   cors: {
-    origin: '*',
+    origin: (origin, callback) => {
+      // Leer directamente desde process.env
+      const corsOrigins = process.env.CORS_ORIGIN?.split(',').map((o) =>
+        o.trim(),
+      ) || ['http://localhost:3000'];
+
+      // Si no hay origen específico o está en la lista de permitidos
+      if (!origin || corsOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log(`🚫 Origen bloqueado por CORS: ${origin}`);
+        callback(new Error('Origen no permitido por CORS'), false);
+      }
+    },
     credentials: true,
   },
 })
@@ -55,14 +68,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.redisService.setUserOnline(userId);
     await this.redisService.setUser(userId, { userId, name, email });
     client.join(`user:${userId}`);
-    
+
     this.server.emit('user_status_update', { userId, status: 'online' });
-    
+
     this.server.emit('user_connected', {
       userId,
       name,
       email,
-      status: 'online'
+      status: 'online',
     });
   }
 
@@ -141,12 +154,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       .emit('message_received', messageData);
 
     const onlineUsers = await this.redisService.getOnlineUsers();
-    
+
     for (const participant of participants) {
       if (participant.userId === senderId) continue;
-      
+
       const isOnline = onlineUsers.includes(participant.userId);
-      
+
       if (isOnline) {
         const unreadEvent = {
           type: conversation.type,
@@ -229,7 +242,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('create_group')
   async handleCreateGroup(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { name: string; description?: string; participants: string[]; createdBy: string },
+    @MessageBody()
+    data: {
+      name: string;
+      description?: string;
+      participants: string[];
+      createdBy: string;
+    },
   ) {
     const conversationId = uuidv4();
     const conversationData = {
@@ -259,10 +278,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('add_user_to_group')
   async handleAddUserToGroup(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversationId: string; userId: string; addedBy: string },
+    @MessageBody()
+    data: { conversationId: string; userId: string; addedBy: string },
   ) {
     const { conversationId, userId, addedBy } = data;
-    
+
     await this.dynamoDBService.addParticipant(conversationId, userId, {
       unreadCount: 0,
       lastReadAt: new Date().toISOString(),

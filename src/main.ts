@@ -12,11 +12,14 @@ async function bootstrap() {
     console.log('✅ Aplicación NestJS creada');
 
     console.log('🌐 Configurando CORS...');
+    const corsOrigins = process.env.CORS_ORIGIN?.split(',').map(origin => origin.trim()) || ['http://localhost:3000'];
     app.enableCors({
-      origin: '*',
+      origin: corsOrigins,
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+      credentials: true,
     });
     console.log('✅ CORS configurado');
+    console.log(`   Orígenes permitidos: ${corsOrigins.join(', ')}`);
 
     console.log('📁 Configurando archivos estáticos...');
     app.use('/uploads', express.static('uploads'));

@@ -16,7 +16,9 @@ export default registerAs('app', () => ({
     endpoint: process.env.DYNAMODB_ENDPOINT,
   },
   socket: {
-    corsOrigin: '*',
+    corsOrigin: process.env.CORS_ORIGIN?.split(',').map((origin) =>
+      origin.trim(),
+    ) || ['http://localhost:3000'],
   },
   fileStorage: {
     type: process.env.FILE_STORAGE_TYPE || 'local',
