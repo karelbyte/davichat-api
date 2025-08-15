@@ -31,7 +31,7 @@ async function bootstrap() {
     await app.listen(port);
     console.log(`✅ Aplicación ejecutándose en puerto ${port}`);
     console.log(`🌐 URL: http://localhost:${port}`);
-    console.log(`🔗 WebSocket: ws://localhost:${port}`);
+    console.log(`🔗 WebSocket: ws://localhost:${port}/ws`);
   } catch (error) {
     console.error('❌ Error al iniciar la aplicación:');
     console.error(`   Tipo: ${error.constructor.name}`);

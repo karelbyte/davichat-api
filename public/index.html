@@ -323,6 +323,7 @@
 
         function connectSocket() {
             socket = io(SOCKET_URL, {
+                path: '/ws',
                 auth: {
                     userId: currentUser.id
                 }

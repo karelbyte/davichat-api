@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ConfigService } from '@nestjs/config';
 
 @WebSocketGateway({
+  path: '/ws',
   cors: {
     origin: '*',
     credentials: true,
