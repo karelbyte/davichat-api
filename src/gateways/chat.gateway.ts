@@ -16,20 +16,7 @@ import { ConfigService } from '@nestjs/config';
 @WebSocketGateway({
   path: '/ws',
   cors: {
-    origin: (origin, callback) => {
-      // Leer directamente desde process.env
-      const corsOrigins = process.env.CORS_ORIGIN?.split(',').map((o) =>
-        o.trim(),
-      ) || ['http://localhost:3000'];
-
-      // Si no hay origen específico o está en la lista de permitidos
-      if (!origin || corsOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log(`🚫 Origen bloqueado por CORS: ${origin}`);
-        callback(new Error('Origen no permitido por CORS'), false);
-      }
-    },
+    origin: '*',
     credentials: true,
   },
 })
