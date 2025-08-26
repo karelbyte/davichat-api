@@ -135,7 +135,7 @@ export class FileStorageService {
     } else if (this.storageType === 'ebs') {
       return this.uploadToEbs(file, fileName);
     } else {
-      throw new Error('Invalid storage type');
+      throw new Error(`Invalid storage type: ${this.storageType}`);
     }
   }
 
