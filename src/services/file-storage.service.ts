@@ -127,7 +127,7 @@ export class FileStorageService {
     const fileId = uuidv4();
     const fileExtension = path.extname(file.originalname);
     const fileName = `${fileId}${fileExtension}`;
-
+    console.log('storageType', this.storageType);
     if (this.storageType === 'local') {
       return this.uploadToLocal(file, fileName);
     } else if (this.storageType === 'aws') {
@@ -152,7 +152,7 @@ export class FileStorageService {
     const filePath = path.join(this.localPath, fileName);
     fs.writeFileSync(filePath, file.buffer);
 
-    const fileUrl = `/uploads/${fileName}`;
+    const fileUrl = `/api/files/${fileName}`;
     const thumbnailUrl = this.isImage(file.mimetype) ? fileUrl : undefined;
 
     return {
