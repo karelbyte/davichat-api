@@ -24,11 +24,11 @@ import appConfig from './configs/app.config';
         return 'AppModule initialized';
       },
     },
-    AppService, 
-    RedisService, 
-    DynamoDBService, 
-    FileStorageService, 
-    ChatGateway
+    AppService,
+    RedisService,
+    DynamoDBService,
+    FileStorageService,
+    ChatGateway,
   ],
 })
 export class AppModule {}

@@ -17,6 +17,8 @@ export class FileStorageService {
   private readonly allowedTypes: string[];
   private readonly localPath: string;
   private readonly s3Bucket: string;
+  private readonly ebsMountPath: string;
+  private readonly ebsMaxSize: number;
 
   constructor(private configService: ConfigService) {
     this.storageType =
@@ -44,12 +46,16 @@ export class FileStorageService {
       'audio/wave',
       'audio/x-wav',
       'audio/x-pn-wav',
-      'audio/vnd.wave',
+      'audio/vnd/wave',
     ];
     this.localPath =
       this.configService.get('app.fileStorage.local.path') || './uploads';
     this.s3Bucket =
       this.configService.get('app.fileStorage.s3.bucket') || 'chat-files';
+    this.ebsMountPath =
+      this.configService.get('app.fileStorage.ebs.mountPath') || '/mnt/ebs-uploads';
+    this.ebsMaxSize =
+      this.configService.get('app.fileStorage.ebs.maxSize') || 107374182400;
 
     if (this.storageType === 'aws') {
       this.s3Client = new S3Client({
@@ -76,12 +82,20 @@ export class FileStorageService {
 
     if (this.storageType === 'local') {
       this.ensureUploadDirectory();
+    } else if (this.storageType === 'ebs') {
+      this.ensureEbsDirectory();
     }
   }
 
   private ensureUploadDirectory() {
     if (!fs.existsSync(this.localPath)) {
       fs.mkdirSync(this.localPath, { recursive: true });
+    }
+  }
+
+  private ensureEbsDirectory() {
+    if (!fs.existsSync(this.ebsMountPath)) {
+      fs.mkdirSync(this.ebsMountPath, { recursive: true });
     }
   }
 
@@ -118,6 +132,8 @@ export class FileStorageService {
       return this.uploadToLocal(file, fileName);
     } else if (this.storageType === 'aws') {
       return this.uploadToS3(file, fileName);
+    } else if (this.storageType === 'ebs') {
+      return this.uploadToEbs(file, fileName);
     } else {
       throw new Error('Invalid storage type');
     }
@@ -184,6 +200,36 @@ export class FileStorageService {
     }
   }
 
+  private async uploadToEbs(
+    file: Express.Multer.File,
+    fileName: string,
+  ): Promise<{
+    fileUrl: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    thumbnailUrl?: string;
+  }> {
+    try {
+      const filePath = path.join(this.ebsMountPath, fileName);
+      fs.writeFileSync(filePath, file.buffer);
+
+      const fileUrl = `/files/${fileName}`;
+      const thumbnailUrl = this.isImage(file.mimetype) ? fileUrl : undefined;
+
+      return {
+        fileUrl,
+        fileName: file.originalname,
+        fileSize: file.size,
+        fileType: file.mimetype,
+        thumbnailUrl,
+      };
+    } catch (error) {
+      console.error('Error uploading to EBS:', error);
+      throw error;
+    }
+  }
+
   async deleteFile(fileUrl: string): Promise<void> {
     if (this.storageType === 'local') {
       const fileName = path.basename(fileUrl);
@@ -198,6 +244,12 @@ export class FileStorageService {
         Key: fileName,
       });
       await this.s3Client.send(command);
+    } else if (this.storageType === 'ebs') {
+      const fileName = path.basename(fileUrl);
+      const filePath = path.join(this.ebsMountPath, fileName);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
     }
   }
 
@@ -214,6 +266,8 @@ export class FileStorageService {
       return `/uploads/${fileName}`;
     } else if (this.storageType === 'aws') {
       return `https://${this.s3Bucket}.s3.amazonaws.com/${fileName}`;
+    } else if (this.storageType === 'ebs') {
+      return `/mnt/ebs-uploads/${fileName}`;
     }
     return '';
   }

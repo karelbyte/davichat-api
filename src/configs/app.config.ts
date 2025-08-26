@@ -48,5 +48,12 @@ export default registerAs('app', () => ({
       bucket: process.env.FILE_STORAGE_S3_BUCKET || 'chat-files',
       region: process.env.FILE_STORAGE_S3_REGION || 'us-east-1',
     },
+    ebs: {
+      mountPath: process.env.FILE_STORAGE_EBS_MOUNT_PATH || '/mnt/ebs-uploads',
+      maxSize: parseInt(
+        process.env.FILE_STORAGE_EBS_MAX_SIZE || '107374182400',
+        10,
+      ),
+    },
   },
 }));

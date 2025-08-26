@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Body, Param, Res, UseInterceptors, UploadedFile, BadRequestException, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Res,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+  Delete,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AppService } from './app.service';
 import { DynamoDBService } from './services/dynamodb.service';
@@ -66,11 +77,12 @@ export class AppController {
     },
   ) {
     if (data.type === 'private' && data.participants.length === 2) {
-      const existingConversation = await this.dynamoDBService.findPrivateConversation(
-        data.participants[0],
-        data.participants[1]
-      );
-      
+      const existingConversation =
+        await this.dynamoDBService.findPrivateConversation(
+          data.participants[0],
+          data.participants[1],
+        );
+
       if (existingConversation) {
         return existingConversation;
       }
@@ -129,9 +141,15 @@ export class AppController {
   }
 
   @Get('api/messages/:conversationId')
-  async getConversationMessages(@Param('conversationId') conversationId: string) {
-    const messages = await this.dynamoDBService.getConversationMessages(conversationId);
-    return messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  async getConversationMessages(
+    @Param('conversationId') conversationId: string,
+  ) {
+    const messages =
+      await this.dynamoDBService.getConversationMessages(conversationId);
+    return messages.sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
   }
 
   @Post('api/upload')
@@ -148,6 +166,61 @@ export class AppController {
 
     const fileData = await this.fileStorageService.uploadFile(file);
     return fileData;
+  }
+
+  @Get('api/files/:fileName')
+  serveFile(@Param('fileName') fileName: string, @Res() res: Response) {
+    try {
+      const storageType = this.fileStorageService['storageType'];
+      let filePath: string;
+
+      if (storageType === 'local') {
+        filePath = path.join(this.fileStorageService['localPath'], fileName);
+      } else if (storageType === 'ebs') {
+        filePath = path.join(this.fileStorageService['ebsMountPath'], fileName);
+      } else {
+        const fileUrl = this.fileStorageService.getFileUrl(fileName);
+        return res.redirect(fileUrl);
+      }
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'File not found' });
+      }
+
+      const stats = fs.statSync(filePath);
+      const fileStream = fs.createReadStream(filePath);
+
+      res.set({
+        'Content-Length': stats.size.toString(),
+        'Content-Type': this.getMimeType(fileName),
+        'Cache-Control': 'public, max-age=31536000',
+      });
+
+      fileStream.pipe(res);
+    } catch (error) {
+      console.error('Error serving file:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  private getMimeType(fileName: string): string {
+    const ext = path.extname(fileName).toLowerCase();
+    const mimeTypes: { [key: string]: string } = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.txt': 'text/plain',
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.ogg': 'audio/ogg',
+      '.m4a': 'audio/mp4',
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
   }
 
   @Get('/api/users')
@@ -188,7 +261,7 @@ export class AppController {
     const adminPath = path.join(__dirname, '../public/admin.html');
     console.log('Checking admin path:', adminPath);
     console.log('Admin exists:', fs.existsSync(adminPath));
-    
+
     if (fs.existsSync(adminPath)) {
       console.log('Serving admin.html');
       res.sendFile(adminPath);
