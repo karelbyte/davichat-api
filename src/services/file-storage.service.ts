@@ -214,7 +214,7 @@ export class FileStorageService {
       const filePath = path.join(this.ebsMountPath, fileName);
       fs.writeFileSync(filePath, file.buffer);
 
-      const fileUrl = `/files/${fileName}`;
+      const fileUrl = `/api/files/${fileName}`;
       const thumbnailUrl = this.isImage(file.mimetype) ? fileUrl : undefined;
 
       return {
