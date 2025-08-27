@@ -12,6 +12,7 @@ import { RedisService } from '../services/redis.service';
 import { DynamoDBService } from '../services/dynamodb.service';
 import { v4 as uuidv4 } from 'uuid';
 import { ConfigService } from '@nestjs/config';
+import { FileStorageService } from '../services/file-storage.service';
 
 @WebSocketGateway({
   path: '/ws',
@@ -28,6 +29,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly redisService: RedisService,
     private readonly dynamoDBService: DynamoDBService,
     private readonly configService: ConfigService,
+    private readonly fileStorageService: FileStorageService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -282,5 +284,85 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       addedBy,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  @SubscribeMessage('edit_message')
+  async handleEditMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string; newContent: string; userId: string },
+  ) {
+    try {
+      const { messageId, newContent, userId } = data;
+      
+      const message = await this.dynamoDBService.getMessage(messageId);
+      if (!message) {
+        throw new Error('Message not found');
+      }
+
+      if (message.senderId !== userId) {
+        throw new Error('Unauthorized to edit this message');
+      }
+
+      if (message.messageType !== 'text') {
+        throw new Error('Only text messages can be edited');
+      }
+
+      const timeDiff = Date.now() - new Date(message.timestamp).getTime();
+      const fifteenMinutes = 15 * 60 * 1000;
+      if (timeDiff > fifteenMinutes) {
+        throw new Error('Message can only be edited within 15 minutes');
+      }
+
+      await this.dynamoDBService.updateMessage(messageId, newContent);
+
+      const updatedMessage = await this.dynamoDBService.getMessage(messageId);
+      
+      this.server
+        .to(`conversation:${message.conversationId}`)
+        .emit('message_edited', updatedMessage);
+    } catch (error) {
+      console.error('Error editing message:', error);
+      client.emit('edit_message_error', { error: error.message });
+    }
+  }
+
+  @SubscribeMessage('delete_message')
+  async handleDeleteMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string; userId: string },
+  ) {
+    try {
+      const { messageId, userId } = data;
+      
+      const message = await this.dynamoDBService.getMessage(messageId);
+      if (!message) {
+        throw new Error('Message not found');
+      }
+
+      if (message.senderId !== userId) {
+        throw new Error('Unauthorized to delete this message');
+      }
+
+      if (message.messageType === 'file') {
+        try {
+          const fileData = JSON.parse(message.content);
+          await this.fileStorageService.deleteFile(fileData.fileUrl);
+        } catch (fileError) {
+          console.error('Error deleting file:', fileError);
+        }
+      }
+
+      await this.dynamoDBService.deleteMessage(messageId);
+      
+      this.server
+        .to(`conversation:${message.conversationId}`)
+        .emit('message_deleted', { 
+          messageId, 
+          conversationId: message.conversationId 
+        });
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      client.emit('delete_message_error', { error: error.message });
+    }
   }
 }

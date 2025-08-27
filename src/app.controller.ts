@@ -18,6 +18,8 @@ import { FileStorageService } from './services/file-storage.service';
 import { Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
+import { ChatGateway } from './gateways/chat.gateway';
 
 @Controller()
 export class AppController {
@@ -26,6 +28,7 @@ export class AppController {
     private readonly dynamoDBService: DynamoDBService,
     private readonly redisService: RedisService,
     private readonly fileStorageService: FileStorageService,
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   @Get()
@@ -154,9 +157,16 @@ export class AppController {
 
   @Post('api/upload')
   @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+  async uploadFile(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { conversationId: string; senderId: string },
+  ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
+    }
+
+    if (!body.conversationId || !body.senderId) {
+      throw new BadRequestException('conversationId and senderId are required');
     }
 
     const validation = this.fileStorageService.validateFile(file);
@@ -164,8 +174,77 @@ export class AppController {
       throw new BadRequestException(validation.error);
     }
 
+    // Upload file
     const fileData = await this.fileStorageService.uploadFile(file);
-    return fileData;
+
+    // Create message with file data
+    const messageId = uuidv4();
+    const timestamp = new Date().toISOString();
+
+    const messageData = {
+      id: messageId,
+      conversationId: body.conversationId,
+      senderId: body.senderId,
+      content: JSON.stringify(fileData),
+      messageType: 'file',
+      timestamp,
+      isEdited: false,
+      isDeleted: false,
+    };
+
+    // Save message to database
+    await this.dynamoDBService.createMessage(messageData);
+
+    // Get conversation and participants for WebSocket emission
+    const conversation = await this.dynamoDBService.getConversation(
+      body.conversationId,
+    );
+    const participants = await this.dynamoDBService.getConversationParticipants(
+      body.conversationId,
+    );
+
+    // Emit message to all participants via WebSocket
+    this.chatGateway.server
+      .to(`conversation:${body.conversationId}`)
+      .emit('message_received', messageData);
+
+    // Handle unread notifications for offline participants
+    const onlineUsers = await this.redisService.getOnlineUsers();
+
+    for (const participant of participants) {
+      if (participant.userId === body.senderId) continue;
+
+      const isOnline = onlineUsers.includes(participant.userId);
+
+      if (isOnline) {
+        const unreadEvent = {
+          type: conversation.type,
+          conversationId: body.conversationId,
+          senderId: body.senderId,
+          messageId,
+          content: fileData.fileName, // Use filename for notification
+          timestamp,
+        };
+
+        this.chatGateway.server
+          .to(`user:${participant.userId}`)
+          .emit(
+            conversation.type === 'private'
+              ? 'unread_message_private'
+              : 'unread_message_group',
+            unreadEvent,
+          );
+      }
+    }
+
+    // Return the complete message data instead of just file data
+    return {
+      ...fileData,
+      messageId,
+      conversationId: body.conversationId,
+      senderId: body.senderId,
+      timestamp,
+    };
   }
 
   @Get('api/files/:fileName')
@@ -213,7 +292,8 @@ export class AppController {
       '.webp': 'image/webp',
       '.pdf': 'application/pdf',
       '.doc': 'application/msword',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.docx':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       '.txt': 'text/plain',
       '.mp3': 'audio/mpeg',
       '.wav': 'audio/wav',
@@ -254,6 +334,19 @@ export class AppController {
   async deleteMessage(@Param('id') id: string) {
     await this.dynamoDBService.deleteMessage(id);
     return { message: 'Mensaje eliminado correctamente' };
+  }
+
+  @Delete('/api/messages')
+  async deleteAllMessages() {
+    try {
+      const deletedCount = await this.dynamoDBService.deleteAllMessages();
+      return { 
+        message: 'Todos los mensajes han sido eliminados correctamente',
+        deletedCount 
+      };
+    } catch (error) {
+      throw new BadRequestException(`Error al eliminar mensajes: ${error.message}`);
+    }
   }
 
   @Get('/admin')

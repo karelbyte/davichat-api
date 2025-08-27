@@ -13,6 +13,7 @@ import {
   DeleteCommand,
   ScanCommand,
   QueryCommand,
+  BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 
 @Injectable()
@@ -460,6 +461,98 @@ export class DynamoDBService implements OnModuleInit {
     } catch (error) {
       console.error('Error eliminando mensaje:', error);
       throw error;
+    }
+  }
+
+  async getMessage(messageId: string): Promise<any> {
+    try {
+      const scanCommand = new ScanCommand({
+        TableName: 'messages',
+        FilterExpression: 'id = :messageId',
+        ExpressionAttributeValues: {
+          ':messageId': messageId,
+        },
+      });
+
+      const result = await this.client.send(scanCommand);
+      return result.Items && result.Items.length > 0 ? result.Items[0] : null;
+    } catch (error) {
+      console.error('Error getting message:', error);
+      throw error;
+    }
+  }
+
+  async updateMessage(messageId: string, newContent: string): Promise<void> {
+    try {
+      const scanCommand = new ScanCommand({
+        TableName: 'messages',
+        FilterExpression: 'id = :messageId',
+        ExpressionAttributeValues: {
+          ':messageId': messageId,
+        },
+      });
+
+      const result = await this.client.send(scanCommand);
+
+      if (!result.Items || result.Items.length === 0) {
+        throw new Error('Message not found');
+      }
+
+      const message = result.Items[0];
+
+      const command = new UpdateCommand({
+        TableName: 'messages',
+        Key: {
+          id: messageId,
+          conversationId: message.conversationId,
+        },
+        UpdateExpression: 'SET content = :content, isEdited = :isEdited, updatedAt = :updatedAt',
+        ExpressionAttributeValues: {
+          ':content': newContent,
+          ':isEdited': true,
+          ':updatedAt': new Date().toISOString(),
+        },
+      });
+
+      await this.client.send(command);
+    } catch (error) {
+      console.error('Error updating message:', error);
+      throw error;
+    }
+  }
+
+  async deleteAllMessages(): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: messages - Operation: BATCH_DELETE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
+
+    const deleteRequests: any[] = [];
+    const scanCommand = new ScanCommand({
+      TableName: 'messages',
+    });
+    const result = await this.client.send(scanCommand);
+
+    if (result.Items && result.Items.length > 0) {
+      for (const message of result.Items) {
+        deleteRequests.push({
+          DeleteRequest: {
+            Key: {
+              id: message.id,
+              conversationId: message.conversationId,
+            },
+          },
+        });
+      }
+
+      const batchWriteCommand = new BatchWriteCommand({
+        RequestItems: {
+          'messages': deleteRequests,
+        },
+      });
+      await this.client.send(batchWriteCommand);
+      console.log(`✅ Eliminados ${deleteRequests.length} mensajes.`);
+    } else {
+      console.log('No hay mensajes para eliminar.');
     }
   }
 }

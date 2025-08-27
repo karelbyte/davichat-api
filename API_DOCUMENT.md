@@ -201,22 +201,93 @@ http://localhost:3000
 }
 ```
 
-### Archivos
+#### DELETE /api/messages/:id
+**Descripción**: Eliminar un mensaje específico por ID
 
-#### POST /api/upload
-**Descripción**: Subir archivo
-
-**Body**: `multipart/form-data`
-- `file`: Archivo a subir
+**Parámetros**:
+- `id`: ID del mensaje a eliminar
 
 **Respuesta**:
 ```json
 {
-  "url": "string",
-  "fileName": "string",
-  "fileSize": "number",
-  "fileType": "string"
+  "message": "Mensaje eliminado correctamente"
 }
+```
+
+#### DELETE /api/messages
+**Descripción**: Eliminar TODOS los mensajes de la base de datos
+
+**⚠️ ADVERTENCIA**: Esta operación es irreversible y eliminará todos los mensajes del chat
+
+**Respuesta**:
+```json
+{
+  "message": "Todos los mensajes han sido eliminados correctamente",
+  "deletedCount": 150
+}
+```
+
+**Uso**:
+```bash
+curl -X DELETE http://localhost:3000/api/messages
+```
+
+### Archivos
+
+#### POST /api/upload
+**Descripción**: Subir archivo y enviarlo automáticamente como mensaje en una conversación.
+
+**Body**:
+- `file`: Archivo a subir
+- `conversationId`: ID de la conversación
+- `senderId`: ID del usuario que envía el mensaje
+
+**Respuesta**:
+```json
+{
+  "fileUrl": "/api/files/filename.jpg",
+  "fileName": "original-name.jpg",
+  "fileSize": 12345,
+  "fileType": "image/jpeg",
+  "thumbnailUrl": "/api/files/filename.jpg",
+  "messageId": "uuid-of-created-message",
+  "conversationId": "conversation-uuid",
+  "senderId": "user-uuid",
+  "timestamp": "2025-01-27T10:00:00.000Z"
+}
+```
+
+**Lo que sucede automáticamente:**
+1. El archivo se sube al almacenamiento.
+2. Se crea un mensaje en la base de datos con `messageType: 'file'`.
+3. El mensaje se emite a través de WebSocket a todos los participantes de la conversación.
+4. Las notificaciones no leídas se envían a los participantes sin conexión.
+5. Se devuelve la información completa del mensaje al frontend.
+
+**Eventos WebSocket:**
+- `message_received` - Enviado a todos los participantes de la conversación.
+- `unread_message_private` / `unread_message_group` - Enviado a participantes en línea para notificaciones.
+
+**Ejemplo de uso en Frontend:**
+```typescript
+// En lugar del antiguo proceso de dos pasos:
+// 1. Subir archivo
+// 2. Enviar mensaje con datos del archivo
+
+// Ahora use el nuevo punto final único:
+const formData = new FormData();
+formData.append('file', file);
+formData.append('conversationId', currentConversation.id);
+formData.append('senderId', currentUser.id);
+
+const response = await fetch('/api/upload', {
+  method: 'POST',
+  body: formData
+});
+
+const result = await response.json();
+// El archivo se sube Y el mensaje se envía automáticamente!
+// No es necesario emitir el evento 'send_message'
 ```
 
 ## Eventos Socket.IO
@@ -663,7 +734,7 @@ interface EventoMensajeNoLeído {
 - **Nombres únicos**: UUID + timestamp
 
 ### Endpoints
-- **POST /api/upload**: Subir archivo
+- **POST /api/upload**: Subir archivo y enviarlo como mensaje automáticamente
 - **GET /uploads/:filename**: Descargar archivo (local)
 
 ## Configuración AWS S3
