@@ -521,38 +521,114 @@ export class DynamoDBService implements OnModuleInit {
     }
   }
 
-  async deleteAllMessages(): Promise<void> {
+  async deleteAllMessages(): Promise<number> {
     console.log(
       `📝 DynamoDB Write - Table: messages - Operation: BATCH_DELETE - Region: ${this.configService.get('app.dynamodb.region')}`,
     );
 
-    const deleteRequests: any[] = [];
-    const scanCommand = new ScanCommand({
-      TableName: 'messages',
-    });
-    const result = await this.client.send(scanCommand);
+    let totalDeleted = 0;
+    let lastEvaluatedKey: any = undefined;
 
-    if (result.Items && result.Items.length > 0) {
-      for (const message of result.Items) {
-        deleteRequests.push({
-          DeleteRequest: {
-            Key: {
-              id: message.id,
-              conversationId: message.conversationId,
-            },
-          },
+    try {
+      do {
+        // Escanear mensajes en lotes
+        const scanCommand = new ScanCommand({
+          TableName: 'messages',
+          Limit: 25, // Límite de DynamoDB para BatchWrite
+          ExclusiveStartKey: lastEvaluatedKey,
         });
-      }
 
-      const batchWriteCommand = new BatchWriteCommand({
-        RequestItems: {
-          'messages': deleteRequests,
-        },
-      });
-      await this.client.send(batchWriteCommand);
-      console.log(`✅ Eliminados ${deleteRequests.length} mensajes.`);
-    } else {
-      console.log('No hay mensajes para eliminar.');
+        const result = await this.client.send(scanCommand);
+        const items = result.Items || [];
+        lastEvaluatedKey = result.LastEvaluatedKey;
+
+        if (items.length > 0) {
+          // Crear requests de eliminación para este lote
+          const deleteRequests = items.map(message => ({
+            DeleteRequest: {
+              Key: {
+                id: message.id,
+                conversationId: message.conversationId,
+              },
+            },
+          }));
+
+          // Ejecutar eliminación en lote
+          const batchWriteCommand = new BatchWriteCommand({
+            RequestItems: {
+              'messages': deleteRequests,
+            },
+          });
+
+          await this.client.send(batchWriteCommand);
+          totalDeleted += items.length;
+          console.log(`✅ Lote eliminado: ${items.length} mensajes. Total: ${totalDeleted}`);
+        }
+      } while (lastEvaluatedKey);
+
+      console.log(`🎉 Eliminación completada. Total de mensajes eliminados: ${totalDeleted}`);
+      return totalDeleted;
+    } catch (error) {
+      console.error('Error eliminando mensajes:', error);
+      throw error;
+    }
+  }
+
+  async deleteMessagesInBatches(batchSize: number = 25): Promise<number> {
+    console.log(
+      `📝 DynamoDB Write - Table: messages - Operation: BATCH_DELETE_BY_BATCHES - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
+
+    let totalDeleted = 0;
+    let lastEvaluatedKey: any = undefined;
+
+    try {
+      do {
+        // Escanear mensajes en lotes del tamaño especificado
+        const scanCommand = new ScanCommand({
+          TableName: 'messages',
+          Limit: batchSize,
+          ExclusiveStartKey: lastEvaluatedKey,
+        });
+
+        const result = await this.client.send(scanCommand);
+        const items = result.Items || [];
+        lastEvaluatedKey = result.LastEvaluatedKey;
+
+        if (items.length > 0) {
+          // Crear requests de eliminación para este lote
+          const deleteRequests = items.map(message => ({
+            DeleteRequest: {
+              Key: {
+                id: message.id,
+                conversationId: message.conversationId,
+              },
+            },
+          }));
+
+          // Ejecutar eliminación en lote
+          const batchWriteCommand = new BatchWriteCommand({
+            RequestItems: {
+              'messages': deleteRequests,
+            },
+          });
+
+          await this.client.send(batchWriteCommand);
+          totalDeleted += items.length;
+          console.log(`✅ Lote eliminado: ${items.length} mensajes. Total: ${totalDeleted}`);
+          
+          // Pequeña pausa entre lotes para evitar throttling
+          if (lastEvaluatedKey) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+      } while (lastEvaluatedKey);
+
+      console.log(`🎉 Eliminación completada. Total de mensajes eliminados: ${totalDeleted}`);
+      return totalDeleted;
+    } catch (error) {
+      console.error('Error eliminando mensajes en lotes:', error);
+      throw error;
     }
   }
 }

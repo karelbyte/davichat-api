@@ -227,9 +227,31 @@ http://localhost:3000
 }
 ```
 
+#### DELETE /api/messages/batch/:batchSize
+**Descripción**: Eliminar mensajes en lotes personalizados (útil para grandes volúmenes)
+
+**Parámetros**:
+- `batchSize`: Tamaño del lote (1-25, máximo permitido por DynamoDB)
+
+**Respuesta**:
+```json
+{
+  "message": "Mensajes eliminados en lotes de 20",
+  "deletedCount": 150,
+  "batchSize": 20
+}
+```
+
 **Uso**:
 ```bash
+# Eliminar todos los mensajes
 curl -X DELETE http://localhost:3000/api/messages
+
+# Eliminar en lotes de 20
+curl -X DELETE http://localhost:3000/api/messages/batch/20
+
+# Eliminar en lotes de 10
+curl -X DELETE http://localhost:3000/api/messages/batch/10
 ```
 
 ### Archivos
