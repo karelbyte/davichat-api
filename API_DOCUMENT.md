@@ -446,7 +446,21 @@ const result = await response.json();
 ```typescript
 {
   conversationId: string;
-  participants: string[];
+  userId: string;
+  addedBy: string;
+}
+```
+
+#### group_participants_updated
+**Descripción**: Actualizar participantes del grupo
+
+**Datos**:
+```typescript
+{
+  conversationId: string;
+  action: 'add' | 'remove' | 'bulk_update';
+  affectedUsers: string[];
+  updatedBy: string;
 }
 ```
 
@@ -591,8 +605,28 @@ const result = await response.json();
 {
   conversationId: string;
   conversationName: string;
-  addedUsers: string[];
+  userId: string;
   addedBy: string;
+  updatedParticipants: string[];
+  participantCount: number;
+  timestamp: string;
+}
+```
+
+#### group_participants_updated
+**Descripción**: Actualización masiva de participantes del grupo
+
+**Datos**:
+```typescript
+{
+  conversationId: string;
+  conversationName: string;
+  participants: string[];
+  participantCount: number;
+  updatedAt: string;
+  action: 'add' | 'remove' | 'bulk_update';
+  affectedUsers: string[];
+  updatedBy: string;
 }
 ```
 
@@ -712,6 +746,8 @@ interface EventoMensajeNoLeído {
 ### GET /api/conversations/user/:userId
 - Obtiene todas las conversaciones de un usuario
 - Incluye información de participantes
+- **Mejora**: Sincroniza automáticamente con `conversation_participants` para obtener conteo actualizado
+- **Resultado**: Lista de participantes siempre refleja el estado real del grupo
 
 ## Funcionalidad de Indicador de Escritura
 
@@ -729,15 +765,33 @@ interface EventoMensajeNoLeído {
 ## Funcionalidad de Añadir Participantes a Grupos
 
 ### Implementación
-1. **Cliente emite**: `add_user_to_group` con lista de participantes
-2. **Servidor procesa**: Añade participantes a la conversación
-3. **Servidor emite**: `user_added_to_group` a todos los participantes
-4. **Cliente recibe**: Actualiza lista de participantes
+1. **Cliente emite**: `add_user_to_group` con datos del usuario a añadir
+2. **Servidor procesa**: Añade participante a la base de datos
+3. **Servidor emite**: Múltiples eventos para garantizar recepción:
+   - `user_added_to_group` al room del grupo (usuarios conectados)
+   - `user_added_to_group` a cada participante individualmente (garantiza recepción)
+   - `user_added_to_group` al usuario específico añadido
+   - `group_participants_updated` a cada participante (actualización masiva)
+   - `group_participants_updated` al room del grupo
+4. **Cliente recibe**: Actualiza lista de participantes y muestra notificaciones
+
+### Estrategia de Emisión
+- **Room del grupo**: Para usuarios ya conectados al WebSocket
+- **Emisión individual**: Garantiza que todos los participantes reciban el evento
+- **Usuario específico**: Asegura que el nuevo usuario reciba la notificación
+- **Eventos complementarios**: `user_added_to_group` + `group_participants_updated`
 
 ### Validaciones
 - Solo conversaciones de tipo grupo
 - Usuarios deben existir en el sistema
 - No duplicar participantes existentes
+- Verificación de participantes antes y después de la operación
+
+### Mejoras Implementadas
+- **Prevención de duplicados**: Verificación automática de participantes existentes
+- **Sincronización de datos**: Integración entre `conversations` y `conversation_participants`
+- **Logging detallado**: Trazabilidad completa de operaciones de participantes
+- **Manejo de errores**: Validaciones robustas para operaciones de grupo
 
 ## Funcionalidad de Archivos
 
@@ -758,6 +812,61 @@ interface EventoMensajeNoLeído {
 ### Endpoints
 - **POST /api/upload**: Subir archivo y enviarlo como mensaje automáticamente
 - **GET /uploads/:filename**: Descargar archivo (local)
+
+## Gestión de Participantes de Grupos
+
+### Funcionalidades Implementadas
+- **Añadir usuarios**: Agregar nuevos participantes a grupos existentes
+- **Remover usuarios**: Eliminar participantes de grupos (con validaciones)
+- **Actualización en tiempo real**: Notificaciones inmediatas a todos los participantes
+- **Validación de permisos**: Solo el creador puede remover participantes
+
+### Eventos WebSocket para Gestión de Participantes
+
+#### Añadir Usuario a Grupo
+```javascript
+// Cliente emite
+socket.emit('add_user_to_group', {
+  conversationId: 'group-uuid',
+  userId: 'user-uuid',
+  addedBy: 'admin-uuid'
+});
+
+// Cliente recibe
+socket.on('user_added_to_group', (data) => {
+  console.log('Usuario añadido:', data);
+  // data: { conversationId, conversationName, userId, addedBy, updatedParticipants, participantCount, timestamp }
+});
+
+socket.on('group_participants_updated', (data) => {
+  console.log('Participantes actualizados:', data);
+  // data: { conversationId, conversationName, participants, participantCount, updatedAt, action, affectedUsers, updatedBy }
+});
+```
+
+#### Remover Usuario de Grupo
+```javascript
+// Cliente emite
+socket.emit('leave_group', {
+  conversationId: 'group-uuid',
+  userId: 'user-uuid'
+});
+
+// Cliente recibe
+socket.on('user_left_group', (data) => {
+  console.log('Usuario salió del grupo:', data);
+});
+
+socket.on('group_left', (data) => {
+  console.log('Usuario abandonó el grupo:', data);
+});
+```
+
+### Estrategia de Notificaciones
+- **Emisión múltiple**: Garantiza que todos los participantes reciban las notificaciones
+- **Room + Individual**: Combina emisión al room del grupo y a cada participante individualmente
+- **Eventos complementarios**: `user_added_to_group` + `group_participants_updated` para actualizaciones completas
+- **Validación de estado**: Verificación de participantes antes y después de cada operación
 
 ## Configuración AWS S3
 

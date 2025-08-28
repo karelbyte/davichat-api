@@ -127,7 +127,6 @@ export class FileStorageService {
     const fileId = uuidv4();
     const fileExtension = path.extname(file.originalname);
     const fileName = `${fileId}${fileExtension}`;
-    console.log('storageType', this.storageType);
     if (this.storageType === 'local') {
       return this.uploadToLocal(file, fileName);
     } else if (this.storageType === 'aws') {

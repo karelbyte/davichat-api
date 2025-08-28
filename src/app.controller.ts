@@ -340,12 +340,14 @@ export class AppController {
   async deleteAllMessages() {
     try {
       const deletedCount = await this.dynamoDBService.deleteAllMessages();
-      return { 
+      return {
         message: 'Todos los mensajes han sido eliminados correctamente',
-        deletedCount 
+        deletedCount,
       };
     } catch (error) {
-      throw new BadRequestException(`Error al eliminar mensajes: ${error.message}`);
+      throw new BadRequestException(
+        `Error al eliminar mensajes: ${error.message}`,
+      );
     }
   }
 
@@ -354,17 +356,22 @@ export class AppController {
     try {
       const batchSizeNum = parseInt(batchSize, 10);
       if (isNaN(batchSizeNum) || batchSizeNum < 1 || batchSizeNum > 25) {
-        throw new BadRequestException('batchSize debe ser un número entre 1 y 25');
+        throw new BadRequestException(
+          'batchSize debe ser un número entre 1 y 25',
+        );
       }
 
-      const deletedCount = await this.dynamoDBService.deleteMessagesInBatches(batchSizeNum);
-      return { 
+      const deletedCount =
+        await this.dynamoDBService.deleteMessagesInBatches(batchSizeNum);
+      return {
         message: `Mensajes eliminados en lotes de ${batchSizeNum}`,
         deletedCount,
-        batchSize: batchSizeNum
+        batchSize: batchSizeNum,
       };
     } catch (error) {
-      throw new BadRequestException(`Error al eliminar mensajes en lotes: ${error.message}`);
+      throw new BadRequestException(
+        `Error al eliminar mensajes en lotes: ${error.message}`,
+      );
     }
   }
 

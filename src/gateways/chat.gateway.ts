@@ -272,28 +272,266 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const { conversationId, userId, addedBy } = data;
 
+    // ✅ OBTENER: Información de la conversación primero
+    const conversation =
+      await this.dynamoDBService.getConversation(conversationId);
+    if (!conversation) {
+      return;
+    }
+
+    // ✅ VERIFICAR: Participantes ANTES de añadir
+
+    const participantsBefore =
+      await this.dynamoDBService.getConversationParticipants(conversationId);
+
+    // Añadir participante a la base de datos
+
     await this.dynamoDBService.addParticipant(conversationId, userId, {
       unreadCount: 0,
       lastReadAt: new Date().toISOString(),
       isActive: true,
     });
 
-    this.server.to(`user:${userId}`).emit('user_added_to_group', {
+    // ✅ VERIFICAR: Participantes DESPUÉS de añadir
+
+    const participantsAfter =
+      await this.dynamoDBService.getConversationParticipants(conversationId);
+
+    // ✅ VERIFICAR: Cambio en el número de participantes
+    const participantCountChange =
+      participantsAfter.length - participantsBefore.length;
+
+    if (participantCountChange !== 1) {
+      // Verificar si el usuario ya existía
+      const wasAlreadyParticipant = participantsBefore.some(
+        (p) => p.userId === userId,
+      );
+      if (wasAlreadyParticipant) {
+        console.log('⚠️ [WebSocket] El usuario ya era participante del grupo');
+      }
+    }
+
+    // ✅ NUEVO: Obtener participantes actualizados para el evento
+    const updatedParticipants =
+      await this.dynamoDBService.getConversationParticipants(conversationId);
+    const updatedParticipantIds = updatedParticipants.map((p) => p.userId);
+    const participantCount = updatedParticipantIds.length;
+
+    console.log(
+      '👥 [WebSocket] Participantes finales para el evento:',
+      updatedParticipantIds,
+    );
+    console.log(
+      '🔢 [WebSocket] Conteo final de participantes:',
+      participantCount,
+    );
+
+    // ✅ SOLUCIÓN: Emitir evento con datos completos a todos en el grupo
+    console.log(
+      '📢 [WebSocket] Emitiendo evento user_added_to_group a todos en el grupo...',
+    );
+    console.log(
+      '📢 [WebSocket] Room objetivo:',
+      `conversation:${conversationId}`,
+    );
+
+    // ✅ VERIFICAR: Status del room antes de emitir
+    const room = this.server.sockets.adapter.rooms.get(
+      `conversation:${conversationId}`,
+    );
+    const usersInRoom = room ? room.size : 0;
+    console.log(
+      '👥 [WebSocket] Usuarios en el room ANTES de emitir:',
+      usersInRoom,
+    );
+
+    // ✅ NUEVO: Evento con datos completos como sugiere el frontend
+    const eventData = {
       conversationId,
+      conversationName: conversation.name,
       userId,
       addedBy,
+      updatedParticipants: updatedParticipantIds, // Lista completa actualizada
+      participantCount, // Conteo actualizado
       timestamp: new Date().toISOString(),
+    };
+
+    // ✅ SOLUCIÓN 1: Emitir al room del grupo (para usuarios que ya están en el room)
+    console.log(
+      '📢 [WebSocket] Emitiendo evento user_added_to_group al room del grupo...',
+    );
+    const emitResult = this.server
+      .to(`conversation:${conversationId}`)
+      .emit('user_added_to_group', eventData);
+    console.log(
+      '✅ [WebSocket] Evento user_added_to_group emitido al room. Resultado:',
+      emitResult,
+    );
+    console.log('📊 [WebSocket] Datos del evento enviados al room:', eventData);
+
+    // ✅ SOLUCIÓN 2: Emitir a cada participante individualmente (GARANTIZA que todos reciban)
+    console.log(
+      '📢 [WebSocket] Emitiendo evento user_added_to_group a cada participante individualmente...',
+    );
+
+    for (const participant of updatedParticipants) {
+      const participantUserId = participant.userId;
+      console.log(
+        `📢 [WebSocket] Enviando evento a participante: ${participantUserId}`,
+      );
+
+      const emitResultIndividual = this.server
+        .to(`user:${participantUserId}`)
+        .emit('user_added_to_group', eventData);
+      console.log(
+        `✅ [WebSocket] Evento enviado a ${participantUserId}. Resultado:`,
+        emitResultIndividual,
+      );
+    }
+
+    // ✅ SOLUCIÓN 3: Emitir también al usuario específico que se añadió (por si no está en ningún room)
+    console.log(
+      '📢 [WebSocket] Emitiendo evento user_added_to_group al usuario añadido específicamente...',
+    );
+    const emitResultSpecific = this.server
+      .to(`user:${userId}`)
+      .emit('user_added_to_group', eventData);
+    console.log(
+      '✅ [WebSocket] Evento user_added_to_group emitido al usuario añadido. Resultado:',
+      emitResultSpecific,
+    );
+
+    // ✅ VERIFICAR: Status del room después de emitir
+    const roomAfter = this.server.sockets.adapter.rooms.get(
+      `conversation:${conversationId}`,
+    );
+    const usersInRoomAfter = roomAfter ? roomAfter.size : 0;
+    console.log(
+      '👥 [WebSocket] Usuarios en el room DESPUÉS de emitir:',
+      usersInRoomAfter,
+    );
+
+    console.log('🎉 [WebSocket] Proceso de añadir usuario al grupo completado');
+    console.log('📋 [WebSocket] RESUMEN FINAL:', {
+      conversationId,
+      conversationName: conversation.name,
+      userId,
+      addedBy,
+      participantsBefore: participantsBefore.length,
+      participantsAfter: participantsAfter.length,
+      participantCountChange,
+      finalParticipantCount: participantCount,
+      usersInRoomBefore: usersInRoom,
+      usersInRoomAfter: usersInRoomAfter,
+      totalParticipants: updatedParticipants.length,
     });
+
+    // ✅ NUEVO: Emitir también group_participants_updated para actualización masiva
+    console.log(
+      '📢 [WebSocket] Emitiendo evento group_participants_updated para actualización masiva...',
+    );
+    const groupUpdateEventData = {
+      conversationId,
+      conversationName: conversation.name,
+      participants: updatedParticipantIds,
+      participantCount,
+      updatedAt: new Date().toISOString(),
+      action: 'add' as const,
+      affectedUsers: [userId],
+      updatedBy: addedBy,
+    };
+
+    // ✅ Emitir group_participants_updated a todos los participantes
+    for (const participant of updatedParticipants) {
+      const participantUserId = participant.userId;
+      console.log(
+        `📢 [WebSocket] Enviando group_participants_updated a: ${participantUserId}`,
+      );
+
+      const emitResultGroup = this.server
+        .to(`user:${participantUserId}`)
+        .emit('group_participants_updated', groupUpdateEventData);
+      console.log(
+        `✅ [WebSocket] group_participants_updated enviado a ${participantUserId}. Resultado:`,
+        emitResultGroup,
+      );
+    }
+
+    // ✅ Emitir también al room del grupo
+    const emitResultGroupRoom = this.server
+      .to(`conversation:${conversationId}`)
+      .emit('group_participants_updated', groupUpdateEventData);
+    console.log(
+      '✅ [WebSocket] group_participants_updated enviado al room. Resultado:',
+      emitResultGroupRoom,
+    );
+
+    console.log(
+      '🎉 [WebSocket] Proceso completo de añadir usuario al grupo terminado',
+    );
+  }
+
+  @SubscribeMessage('group_participants_updated')
+  async handleGroupParticipantsUpdated(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      conversationId: string;
+      action: 'add' | 'remove' | 'bulk_update';
+      affectedUsers: string[];
+      updatedBy: string;
+    },
+  ) {
+    const { conversationId, action, affectedUsers, updatedBy } = data;
+
+    // ✅ OBTENER: Información de la conversación
+    const conversation =
+      await this.dynamoDBService.getConversation(conversationId);
+    if (!conversation) {
+      return;
+    }
+
+    // ✅ OBTENER: Participantes actualizados
+    const updatedParticipants =
+      await this.dynamoDBService.getConversationParticipants(conversationId);
+    const updatedParticipantIds = updatedParticipants.map((p) => p.userId);
+    const participantCount = updatedParticipantIds.length;
+
+    // ✅ EMITIR: Evento group_participants_updated a todos los participantes
+    const eventData = {
+      conversationId,
+      conversationName: conversation.name,
+      participants: updatedParticipantIds,
+      participantCount,
+      updatedAt: new Date().toISOString(),
+      action,
+      affectedUsers,
+      updatedBy,
+    };
+
+    // ✅ SOLUCIÓN: Emitir a cada participante individualmente
+    for (const participant of updatedParticipants) {
+      const participantUserId = participant.userId;
+      this.server
+        .to(`user:${participantUserId}`)
+        .emit('group_participants_updated', eventData);
+    }
+
+    // ✅ SOLUCIÓN: Emitir también al room del grupo
+    this.server
+      .to(`conversation:${conversationId}`)
+      .emit('group_participants_updated', eventData);
   }
 
   @SubscribeMessage('edit_message')
   async handleEditMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { messageId: string; newContent: string; userId: string },
+    @MessageBody()
+    data: { messageId: string; newContent: string; userId: string },
   ) {
     try {
       const { messageId, newContent, userId } = data;
-      
+
       const message = await this.dynamoDBService.getMessage(messageId);
       if (!message) {
         throw new Error('Message not found');
@@ -316,7 +554,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.dynamoDBService.updateMessage(messageId, newContent);
 
       const updatedMessage = await this.dynamoDBService.getMessage(messageId);
-      
+
       this.server
         .to(`conversation:${message.conversationId}`)
         .emit('message_edited', updatedMessage);
@@ -333,7 +571,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const { messageId, userId } = data;
-      
+
       const message = await this.dynamoDBService.getMessage(messageId);
       if (!message) {
         throw new Error('Message not found');
@@ -353,16 +591,115 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       await this.dynamoDBService.deleteMessage(messageId);
-      
+
       this.server
         .to(`conversation:${message.conversationId}`)
-        .emit('message_deleted', { 
-          messageId, 
-          conversationId: message.conversationId 
+        .emit('message_deleted', {
+          messageId,
+          conversationId: message.conversationId,
         });
     } catch (error) {
       console.error('Error deleting message:', error);
       client.emit('delete_message_error', { error: error.message });
+    }
+  }
+
+  @SubscribeMessage('send_reply')
+  async handleSendReply(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      conversationId: string;
+      senderId: string;
+      content: string;
+      messageType: string;
+      replyTo: string;
+    },
+  ) {
+    try {
+      const { conversationId, senderId, content, messageType, replyTo } = data;
+
+      // 1. Validar que el usuario esté en la conversación
+      const participants = await this.dynamoDBService.getConversationParticipants(conversationId);
+      const isUserInConversation = participants.some(p => p.userId === senderId);
+      
+      if (!isUserInConversation) {
+        client.emit('reply_error', { error: 'Usuario no está en la conversación' });
+        return;
+      }
+
+      // 2. Validar que el mensaje original existe
+      const originalMessage = await this.dynamoDBService.getMessage(replyTo);
+      if (!originalMessage || originalMessage.conversationId !== conversationId) {
+        client.emit('reply_error', { error: 'Mensaje original no encontrado' });
+        return;
+      }
+
+      // 3. Crear el mensaje de respuesta
+      const messageId = uuidv4();
+      const timestamp = new Date().toISOString();
+      
+      const replyMessageData = {
+        id: messageId,
+        conversationId,
+        senderId,
+        content,
+        messageType,
+        timestamp,
+        isEdited: false,
+        isDeleted: false,
+        replyTo,
+        isReply: true
+      };
+
+      await this.dynamoDBService.createMessage(replyMessageData);
+
+      // 4. Generar replyPreview del mensaje original
+      let replyPreview = originalMessage.content;
+      if (originalMessage.messageType === 'file' || originalMessage.messageType === 'audio') {
+        try {
+          const fileData = JSON.parse(originalMessage.content);
+          const fileType = originalMessage.messageType === 'audio' ? 'Audio' : 'Archivo';
+          replyPreview = `${fileType}: ${fileData.fileName || 'Sin nombre'}`;
+        } catch {
+          replyPreview = originalMessage.messageType === 'audio' ? 'Audio' : 'Archivo';
+        }
+      }
+
+      // Truncar si es muy largo
+      if (replyPreview.length > 100) {
+        replyPreview = replyPreview.substring(0, 97) + '...';
+      }
+
+      // 5. Obtener información del usuario remitente
+      const user = await this.dynamoDBService.getUser(senderId);
+      const senderInfo = {
+        id: senderId,
+        name: user?.name || 'Usuario',
+        avatar: user?.avatar || ''
+      };
+
+      // 6. Emitir evento reply_received a todos en la conversación
+      const eventData = {
+        ...replyMessageData,
+        replyPreview,
+        sender: senderInfo
+      };
+
+      this.server
+        .to(`conversation:${conversationId}`)
+        .emit('reply_received', eventData);
+
+      // 7. Confirmar envío exitoso al remitente
+      client.emit('reply_sent_success', {
+        messageId,
+        conversationId,
+        timestamp
+      });
+
+    } catch (error) {
+      console.error('Error processing reply:', error);
+      client.emit('reply_error', { error: 'Error interno del servidor' });
     }
   }
 }

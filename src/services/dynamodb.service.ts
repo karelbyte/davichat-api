@@ -248,8 +248,47 @@ export class DynamoDBService implements OnModuleInit {
     participantData: any,
   ): Promise<void> {
     console.log(
-      `📝 DynamoDB Write - Table: conversation_participants - Operation: CREATE - Region: ${this.configService.get('app.dynamodb.region')}`,
+      `📝 [DynamoDB] Añadiendo participante - Table: conversation_participants - Operation: CREATE - Region: ${this.configService.get('app.dynamodb.region')}`,
     );
+    console.log('👤 [DynamoDB] Detalles del participante:', {
+      conversationId,
+      userId,
+      participantData,
+    });
+
+    // ✅ VERIFICAR: Si el participante ya existe
+    const existingParticipant = await this.getParticipant(
+      conversationId,
+      userId,
+    );
+    if (existingParticipant) {
+
+      const command = new UpdateCommand({
+        TableName: 'conversation_participants',
+        Key: {
+          conversationId,
+          userId,
+        },
+        UpdateExpression:
+          'SET unreadCount = :unreadCount, lastReadAt = :lastReadAt, isActive = :isActive, updatedAt = :updatedAt',
+        ExpressionAttributeValues: {
+          ':unreadCount': participantData.unreadCount || 0,
+          ':lastReadAt': participantData.lastReadAt || new Date().toISOString(),
+          ':isActive':
+            participantData.isActive !== undefined
+              ? participantData.isActive
+              : true,
+          ':updatedAt': new Date().toISOString(),
+        },
+      });
+      await this.client.send(command);
+      console.log(
+        '✅ [DynamoDB] Participante existente actualizado exitosamente',
+      );
+      return;
+    }
+
+    console.log('🆕 [DynamoDB] Creando nuevo participante...');
     const command = new PutCommand({
       TableName: 'conversation_participants',
       Item: {
@@ -257,9 +296,47 @@ export class DynamoDBService implements OnModuleInit {
         userId,
         ...participantData,
         joinedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
     });
-    await this.client.send(command);
+
+    try {
+      await this.client.send(command);
+      console.log('✅ [DynamoDB] Nuevo participante creado exitosamente');
+    } catch (error) {
+      console.error('💥 [DynamoDB] Error al crear participante:', error);
+      throw error;
+    }
+  }
+
+  async getParticipant(conversationId: string, userId: string): Promise<any> {
+    console.log('🔍 [DynamoDB] Verificando si el participante existe:', {
+      conversationId,
+      userId,
+    });
+
+    const command = new GetCommand({
+      TableName: 'conversation_participants',
+      Key: {
+        conversationId,
+        userId,
+      },
+    });
+
+    try {
+      const result = await this.client.send(command);
+      const exists = !!result.Item;
+      console.log(
+        '🔍 [DynamoDB] Participante existe:',
+        exists,
+        result.Item ? 'Sí' : 'No',
+      );
+      return result.Item || null;
+    } catch (error) {
+      console.error('💥 [DynamoDB] Error al verificar participante:', error);
+      return null;
+    }
   }
 
   async getConversationParticipants(conversationId: string): Promise<any[]> {
@@ -270,8 +347,15 @@ export class DynamoDBService implements OnModuleInit {
         ':conversationId': conversationId,
       },
     });
-    const result = await this.client.send(command);
-    return result.Items || [];
+
+    try {
+      const result = await this.client.send(command);
+      const participants = result.Items || [];
+      return participants;
+    } catch (error) {
+      console.error('💥 [DynamoDB] Error al obtener participantes:', error);
+      return [];
+    }
   }
 
   async createMessage(messageData: any): Promise<void> {
@@ -327,6 +411,11 @@ export class DynamoDBService implements OnModuleInit {
 
   async getUserConversations(userId: string): Promise<any[]> {
     try {
+      console.log(
+        '🔍 [DynamoDB] Obteniendo conversaciones del usuario:',
+        userId,
+      );
+
       const command = new QueryCommand({
         TableName: 'conversation_participants',
         IndexName: 'userId-index',
@@ -338,17 +427,38 @@ export class DynamoDBService implements OnModuleInit {
       const result = await this.client.send(command);
       const conversations: any[] = [];
 
+      console.log(
+        '👥 [DynamoDB] Participaciones encontradas:',
+        result.Items?.length || 0,
+      );
+
       for (const participant of result.Items || []) {
         const conversation = await this.getConversation(
           participant.conversationId,
         );
         if (conversation) {
-          conversations.push(conversation);
+          // ✅ NUEVO: Obtener participantes activos de conversation_participants
+          const activeParticipants = await this.getConversationParticipants(
+            conversation.id,
+          );
+          const activeParticipantIds = activeParticipants.map((p) => p.userId);
+
+          // ✅ SOLUCIÓN: Crear conversación con participantes actualizados
+          const updatedConversation = {
+            ...conversation,
+            participants: activeParticipantIds, // ← Usar participantes activos
+          };
+
+          conversations.push(updatedConversation);
         }
       }
-
       return conversations;
     } catch (error) {
+      console.error(
+        '💥 [DynamoDB] Error en getUserConversations, usando fallback:',
+        error,
+      );
+
       const scanCommand = new ScanCommand({
         TableName: 'conversation_participants',
         FilterExpression: 'userId = :userId',
@@ -364,10 +474,20 @@ export class DynamoDBService implements OnModuleInit {
           participant.conversationId,
         );
         if (conversation) {
-          conversations.push(conversation);
+          // ✅ NUEVO: Obtener participantes activos también en el fallback
+          const activeParticipants = await this.getConversationParticipants(
+            conversation.id,
+          );
+          const activeParticipantIds = activeParticipants.map((p) => p.userId);
+
+          const updatedConversation = {
+            ...conversation,
+            participants: activeParticipantIds, // ← Usar participantes activos
+          };
+
+          conversations.push(updatedConversation);
         }
       }
-
       return conversations;
     }
   }
@@ -506,7 +626,8 @@ export class DynamoDBService implements OnModuleInit {
           id: messageId,
           conversationId: message.conversationId,
         },
-        UpdateExpression: 'SET content = :content, isEdited = :isEdited, updatedAt = :updatedAt',
+        UpdateExpression:
+          'SET content = :content, isEdited = :isEdited, updatedAt = :updatedAt',
         ExpressionAttributeValues: {
           ':content': newContent,
           ':isEdited': true,
@@ -544,7 +665,7 @@ export class DynamoDBService implements OnModuleInit {
 
         if (items.length > 0) {
           // Crear requests de eliminación para este lote
-          const deleteRequests = items.map(message => ({
+          const deleteRequests = items.map((message) => ({
             DeleteRequest: {
               Key: {
                 id: message.id,
@@ -556,17 +677,21 @@ export class DynamoDBService implements OnModuleInit {
           // Ejecutar eliminación en lote
           const batchWriteCommand = new BatchWriteCommand({
             RequestItems: {
-              'messages': deleteRequests,
+              messages: deleteRequests,
             },
           });
 
           await this.client.send(batchWriteCommand);
           totalDeleted += items.length;
-          console.log(`✅ Lote eliminado: ${items.length} mensajes. Total: ${totalDeleted}`);
+          console.log(
+            `✅ Lote eliminado: ${items.length} mensajes. Total: ${totalDeleted}`,
+          );
         }
       } while (lastEvaluatedKey);
 
-      console.log(`🎉 Eliminación completada. Total de mensajes eliminados: ${totalDeleted}`);
+      console.log(
+        `🎉 Eliminación completada. Total de mensajes eliminados: ${totalDeleted}`,
+      );
       return totalDeleted;
     } catch (error) {
       console.error('Error eliminando mensajes:', error);
@@ -597,7 +722,7 @@ export class DynamoDBService implements OnModuleInit {
 
         if (items.length > 0) {
           // Crear requests de eliminación para este lote
-          const deleteRequests = items.map(message => ({
+          const deleteRequests = items.map((message) => ({
             DeleteRequest: {
               Key: {
                 id: message.id,
@@ -609,22 +734,26 @@ export class DynamoDBService implements OnModuleInit {
           // Ejecutar eliminación en lote
           const batchWriteCommand = new BatchWriteCommand({
             RequestItems: {
-              'messages': deleteRequests,
+              messages: deleteRequests,
             },
           });
 
           await this.client.send(batchWriteCommand);
           totalDeleted += items.length;
-          console.log(`✅ Lote eliminado: ${items.length} mensajes. Total: ${totalDeleted}`);
-          
+          console.log(
+            `✅ Lote eliminado: ${items.length} mensajes. Total: ${totalDeleted}`,
+          );
+
           // Pequeña pausa entre lotes para evitar throttling
           if (lastEvaluatedKey) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise((resolve) => setTimeout(resolve, 100));
           }
         }
       } while (lastEvaluatedKey);
 
-      console.log(`🎉 Eliminación completada. Total de mensajes eliminados: ${totalDeleted}`);
+      console.log(
+        `🎉 Eliminación completada. Total de mensajes eliminados: ${totalDeleted}`,
+      );
       return totalDeleted;
     } catch (error) {
       console.error('Error eliminando mensajes en lotes:', error);
