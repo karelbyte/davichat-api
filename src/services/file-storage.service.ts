@@ -138,6 +138,31 @@ export class FileStorageService {
     }
   }
 
+  async uploadUserAvatar(
+    file: Express.Multer.File,
+    userId: string,
+  ): Promise<{
+    fileUrl: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    thumbnailUrl?: string;
+  }> {
+    const fileId = uuidv4();
+    const fileExtension = path.extname(file.originalname);
+    const fileName = `avatar_${fileId}${fileExtension}`;
+
+    if (this.storageType === 'local') {
+      return this.uploadAvatarToLocal(file, fileName, userId);
+    } else if (this.storageType === 'aws') {
+      return this.uploadAvatarToS3(file, fileName, userId);
+    } else if (this.storageType === 'ebs') {
+      return this.uploadAvatarToEbs(file, fileName, userId);
+    } else {
+      throw new Error(`Invalid storage type: ${this.storageType}`);
+    }
+  }
+
   private async uploadToLocal(
     file: Express.Multer.File,
     fileName: string,
@@ -269,5 +294,114 @@ export class FileStorageService {
       return `/mnt/ebs-uploads/${fileName}`;
     }
     return '';
+  }
+
+  private async uploadAvatarToLocal(
+    file: Express.Multer.File,
+    fileName: string,
+    userId: string,
+  ): Promise<{
+    fileUrl: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    thumbnailUrl?: string;
+  }> {
+    const userAvatarDir = path.join(this.localPath, 'avatars', userId);
+
+    // Crear directorio del usuario si no existe
+    if (!fs.existsSync(userAvatarDir)) {
+      fs.mkdirSync(userAvatarDir, { recursive: true });
+    }
+
+    const filePath = path.join(userAvatarDir, fileName);
+    fs.writeFileSync(filePath, file.buffer);
+
+    const fileUrl = `/api/files/avatars/${userId}/${fileName}`;
+    const thumbnailUrl = this.isImage(file.mimetype) ? fileUrl : undefined;
+
+    return {
+      fileUrl,
+      fileName: file.originalname,
+      fileSize: file.size,
+      fileType: file.mimetype,
+      thumbnailUrl,
+    };
+  }
+
+  private async uploadAvatarToS3(
+    file: Express.Multer.File,
+    fileName: string,
+    userId: string,
+  ): Promise<{
+    fileUrl: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    thumbnailUrl?: string;
+  }> {
+    try {
+      const s3Key = `avatars/${userId}/${fileName}`;
+      const command = new PutObjectCommand({
+        Bucket: this.s3Bucket,
+        Key: s3Key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      });
+
+      await this.s3Client.send(command);
+
+      const fileUrl = `https://${this.s3Bucket}.s3.amazonaws.com/${s3Key}`;
+      const thumbnailUrl = this.isImage(file.mimetype) ? fileUrl : undefined;
+
+      return {
+        fileUrl,
+        fileName: file.originalname,
+        fileSize: file.size,
+        fileType: file.mimetype,
+        thumbnailUrl,
+      };
+    } catch (error) {
+      console.error('Error uploading avatar to S3:', error);
+      throw error;
+    }
+  }
+
+  private async uploadAvatarToEbs(
+    file: Express.Multer.File,
+    fileName: string,
+    userId: string,
+  ): Promise<{
+    fileUrl: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    thumbnailUrl?: string;
+  }> {
+    try {
+      const userAvatarDir = path.join(this.ebsMountPath, 'avatars', userId);
+
+      // Crear directorio del usuario si no existe
+      if (!fs.existsSync(userAvatarDir)) {
+        fs.mkdirSync(userAvatarDir, { recursive: true });
+      }
+
+      const filePath = path.join(userAvatarDir, fileName);
+      fs.writeFileSync(filePath, file.buffer);
+
+      const fileUrl = `/api/files/avatars/${userId}/${fileName}`;
+      const thumbnailUrl = this.isImage(file.mimetype) ? fileUrl : undefined;
+
+      return {
+        fileUrl,
+        fileName: file.originalname,
+        fileSize: file.size,
+        fileType: file.mimetype,
+        thumbnailUrl,
+      };
+    } catch (error) {
+      console.error('Error uploading avatar to EBS:', error);
+      throw error;
+    }
   }
 }

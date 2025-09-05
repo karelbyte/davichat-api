@@ -62,10 +62,34 @@ export class AppController {
     });
   }
 
+  @Get('api/users/:id')
+  async getUser(@Param('id') userId: string) {
+    const user = await this.dynamoDBService.getUser(userId);
+    if (!user) {
+      throw new BadRequestException('Usuario no encontrado');
+    }
+    
+    const onlineUsers = await this.redisService.getOnlineUsers();
+    return {
+      ...user,
+      isOnline: onlineUsers.includes(user.id),
+    };
+  }
+
   @Post('api/users')
   async createUser(@Body() userData: any) {
-    await this.dynamoDBService.createUser(userData);
-    return userData;
+    // Verificar si el usuario ya existe
+    const existingUser = await this.dynamoDBService.getUser(userData.id);
+    
+    if (existingUser) {
+      // Usuario existe: actualizar solo los campos enviados, preservando el avatar
+      await this.dynamoDBService.updateUser(userData.id, userData);
+      return { ...existingUser, ...userData };
+    } else {
+      // Usuario no existe: crear nuevo
+      await this.dynamoDBService.createUser(userData);
+      return userData;
+    }
   }
 
   @Post('api/conversations')
@@ -282,6 +306,56 @@ export class AppController {
     }
   }
 
+  @Get('api/files/avatars/:userId/:fileName')
+  serveAvatarFile(
+    @Param('userId') userId: string,
+    @Param('fileName') fileName: string,
+    @Res() res: Response,
+  ) {
+    try {
+      const storageType = this.fileStorageService['storageType'];
+      let filePath: string;
+
+      if (storageType === 'local') {
+        filePath = path.join(
+          this.fileStorageService['localPath'],
+          'avatars',
+          userId,
+          fileName,
+        );
+      } else if (storageType === 'ebs') {
+        filePath = path.join(
+          this.fileStorageService['ebsMountPath'],
+          'avatars',
+          userId,
+          fileName,
+        );
+      } else {
+        // Para AWS S3, redirigir a la URL completa
+        const fileUrl = `https://${this.fileStorageService['s3Bucket']}.s3.amazonaws.com/avatars/${userId}/${fileName}`;
+        return res.redirect(fileUrl);
+      }
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Avatar not found' });
+      }
+
+      const stats = fs.statSync(filePath);
+      const fileStream = fs.createReadStream(filePath);
+
+      res.set({
+        'Content-Length': stats.size.toString(),
+        'Content-Type': this.getMimeType(fileName),
+        'Cache-Control': 'public, max-age=31536000',
+      });
+
+      fileStream.pipe(res);
+    } catch (error) {
+      console.error('Error serving avatar file:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
   private getMimeType(fileName: string): string {
     const ext = path.extname(fileName).toLowerCase();
     const mimeTypes: { [key: string]: string } = {
@@ -373,6 +447,92 @@ export class AppController {
         `Error al eliminar mensajes en lotes: ${error.message}`,
       );
     }
+  }
+
+  @Post('api/users/:id/avatar')
+  @UseInterceptors(FileInterceptor('avatar'))
+  async updateUserAvatar(
+    @Param('id') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No se proporcionó archivo de avatar');
+    }
+
+    // Validar que sea una imagen
+    if (!file.mimetype.startsWith('image/')) {
+      throw new BadRequestException('El archivo debe ser una imagen');
+    }
+
+    // Validar tamaño del archivo (máximo 5MB para avatares)
+    const maxAvatarSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxAvatarSize) {
+      throw new BadRequestException(
+        'El archivo de avatar es demasiado grande (máximo 5MB)',
+      );
+    }
+
+    // Obtener usuario actual para verificar si tiene avatar anterior
+    const currentUser = await this.dynamoDBService.getUser(userId);
+    if (!currentUser) {
+      throw new BadRequestException('Usuario no encontrado');
+    }
+
+    // Subir nuevo avatar con estructura de carpetas por usuario
+    const fileData = await this.fileStorageService.uploadUserAvatar(
+      file,
+      userId,
+    );
+
+    // Actualizar usuario con nueva URL de avatar
+    await this.dynamoDBService.updateUser(userId, {
+      avatar: fileData.fileUrl,
+    });
+
+    // Si había un avatar anterior, eliminarlo
+    if (currentUser.avatar) {
+      try {
+        await this.fileStorageService.deleteFile(currentUser.avatar);
+      } catch (error) {
+        console.warn('No se pudo eliminar el avatar anterior:', error);
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Avatar actualizado correctamente',
+      avatar: fileData.fileUrl,
+    };
+  }
+
+  @Delete('api/users/:id/avatar')
+  async deleteUserAvatar(@Param('id') userId: string) {
+    // Obtener usuario actual
+    const currentUser = await this.dynamoDBService.getUser(userId);
+    if (!currentUser) {
+      throw new BadRequestException('Usuario no encontrado');
+    }
+
+    if (!currentUser.avatar) {
+      throw new BadRequestException('El usuario no tiene avatar');
+    }
+
+    // Eliminar archivo de avatar
+    try {
+      await this.fileStorageService.deleteFile(currentUser.avatar);
+    } catch (error) {
+      console.warn('No se pudo eliminar el archivo de avatar:', error);
+    }
+
+    // Actualizar usuario removiendo el campo avatar
+    await this.dynamoDBService.updateUser(userId, {
+      avatar: null,
+    });
+
+    return {
+      success: true,
+      message: 'Avatar eliminado correctamente',
+    };
   }
 
   @Get('/admin')

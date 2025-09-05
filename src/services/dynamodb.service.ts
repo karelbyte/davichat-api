@@ -154,6 +154,7 @@ export class DynamoDBService implements OnModuleInit {
     console.log(
       `📝 DynamoDB Write - Table: users - Operation: CREATE - Region: ${this.configService.get('app.dynamodb.region')}`,
     );
+    
     const command = new PutCommand({
       TableName: 'users',
       Item: {
@@ -178,23 +179,40 @@ export class DynamoDBService implements OnModuleInit {
     console.log(
       `📝 DynamoDB Write - Table: users - Operation: UPDATE - Region: ${this.configService.get('app.dynamodb.region')}`,
     );
-    let updateExpression = 'SET updatedAt = :updatedAt';
-    const expressionAttributeValues: any = {
-      ':updatedAt': new Date().toISOString(),
+    
+    // Obtener el usuario actual primero
+    const currentUser = await this.getUser(userId);
+    if (!currentUser) {
+      throw new Error('Usuario no encontrado');
+    }
+    
+    // Crear el item actualizado manteniendo todos los campos existentes
+    const updatedUser = {
+      ...currentUser,
+      ...updateData,
+      updatedAt: new Date().toISOString(),
     };
-
-    Object.keys(updateData).forEach((key) => {
-      if (key !== 'id') {
-        updateExpression += `, ${key} = :${key}`;
-        expressionAttributeValues[`:${key}`] = updateData[key];
-      }
+    
+    const command = new PutCommand({
+      TableName: 'users',
+      Item: updatedUser,
     });
+    
+    await this.client.send(command);
+  }
 
+  async updateUserAvatar(userId: string, avatarUrl: string): Promise<void> {
+    console.log(
+      `📝 DynamoDB Write - Table: users - Operation: UPDATE_AVATAR - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
     const command = new UpdateCommand({
       TableName: 'users',
       Key: { id: userId },
-      UpdateExpression: updateExpression,
-      ExpressionAttributeValues: expressionAttributeValues,
+      UpdateExpression: 'SET avatar = :avatar, updatedAt = :updatedAt',
+      ExpressionAttributeValues: {
+        ':avatar': avatarUrl,
+        ':updatedAt': new Date().toISOString(),
+      },
     });
     await this.client.send(command);
   }
