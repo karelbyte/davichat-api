@@ -272,19 +272,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const { conversationId, userId, addedBy } = data;
 
-    // ✅ OBTENER: Información de la conversación primero
     const conversation =
       await this.dynamoDBService.getConversation(conversationId);
     if (!conversation) {
       return;
     }
 
-    // ✅ VERIFICAR: Participantes ANTES de añadir
-
     const participantsBefore =
       await this.dynamoDBService.getConversationParticipants(conversationId);
-
-    // Añadir participante a la base de datos
 
     await this.dynamoDBService.addParticipant(conversationId, userId, {
       unreadCount: 0,
@@ -292,17 +287,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       isActive: true,
     });
 
-    // ✅ VERIFICAR: Participantes DESPUÉS de añadir
-
     const participantsAfter =
       await this.dynamoDBService.getConversationParticipants(conversationId);
 
-    // ✅ VERIFICAR: Cambio en el número de participantes
     const participantCountChange =
       participantsAfter.length - participantsBefore.length;
 
     if (participantCountChange !== 1) {
-      // Verificar si el usuario ya existía
       const wasAlreadyParticipant = participantsBefore.some(
         (p) => p.userId === userId,
       );
@@ -311,7 +302,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
 
-    // ✅ NUEVO: Obtener participantes actualizados para el evento
     const updatedParticipants =
       await this.dynamoDBService.getConversationParticipants(conversationId);
     const updatedParticipantIds = updatedParticipants.map((p) => p.userId);
@@ -326,7 +316,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       participantCount,
     );
 
-    // ✅ SOLUCIÓN: Emitir evento con datos completos a todos en el grupo
     console.log(
       '📢 [WebSocket] Emitiendo evento user_added_to_group a todos en el grupo...',
     );
@@ -335,7 +324,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `conversation:${conversationId}`,
     );
 
-    // ✅ VERIFICAR: Status del room antes de emitir
     const room = this.server.sockets.adapter.rooms.get(
       `conversation:${conversationId}`,
     );
@@ -345,18 +333,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       usersInRoom,
     );
 
-    // ✅ NUEVO: Evento con datos completos como sugiere el frontend
     const eventData = {
       conversationId,
       conversationName: conversation.name,
       userId,
       addedBy,
-      updatedParticipants: updatedParticipantIds, // Lista completa actualizada
-      participantCount, // Conteo actualizado
+      updatedParticipants: updatedParticipantIds,
+      participantCount,
       timestamp: new Date().toISOString(),
     };
 
-    // ✅ SOLUCIÓN 1: Emitir al room del grupo (para usuarios que ya están en el room)
     console.log(
       '📢 [WebSocket] Emitiendo evento user_added_to_group al room del grupo...',
     );
@@ -369,7 +355,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
     console.log('📊 [WebSocket] Datos del evento enviados al room:', eventData);
 
-    // ✅ SOLUCIÓN 2: Emitir a cada participante individualmente (GARANTIZA que todos reciban)
     console.log(
       '📢 [WebSocket] Emitiendo evento user_added_to_group a cada participante individualmente...',
     );
@@ -389,7 +374,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
     }
 
-    // ✅ SOLUCIÓN 3: Emitir también al usuario específico que se añadió (por si no está en ningún room)
     console.log(
       '📢 [WebSocket] Emitiendo evento user_added_to_group al usuario añadido específicamente...',
     );
@@ -401,7 +385,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       emitResultSpecific,
     );
 
-    // ✅ VERIFICAR: Status del room después de emitir
     const roomAfter = this.server.sockets.adapter.rooms.get(
       `conversation:${conversationId}`,
     );
@@ -426,7 +409,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       totalParticipants: updatedParticipants.length,
     });
 
-    // ✅ NUEVO: Emitir también group_participants_updated para actualización masiva
     console.log(
       '📢 [WebSocket] Emitiendo evento group_participants_updated para actualización masiva...',
     );
@@ -441,7 +423,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       updatedBy: addedBy,
     };
 
-    // ✅ Emitir group_participants_updated a todos los participantes
     for (const participant of updatedParticipants) {
       const participantUserId = participant.userId;
       console.log(
@@ -457,7 +438,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
     }
 
-    // ✅ Emitir también al room del grupo
     const emitResultGroupRoom = this.server
       .to(`conversation:${conversationId}`)
       .emit('group_participants_updated', groupUpdateEventData);
@@ -484,20 +464,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const { conversationId, action, affectedUsers, updatedBy } = data;
 
-    // ✅ OBTENER: Información de la conversación
     const conversation =
       await this.dynamoDBService.getConversation(conversationId);
     if (!conversation) {
       return;
     }
 
-    // ✅ OBTENER: Participantes actualizados
     const updatedParticipants =
       await this.dynamoDBService.getConversationParticipants(conversationId);
     const updatedParticipantIds = updatedParticipants.map((p) => p.userId);
     const participantCount = updatedParticipantIds.length;
 
-    // ✅ EMITIR: Evento group_participants_updated a todos los participantes
     const eventData = {
       conversationId,
       conversationName: conversation.name,
@@ -509,7 +486,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       updatedBy,
     };
 
-    // ✅ SOLUCIÓN: Emitir a cada participante individualmente
     for (const participant of updatedParticipants) {
       const participantUserId = participant.userId;
       this.server
@@ -517,7 +493,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         .emit('group_participants_updated', eventData);
     }
 
-    // ✅ SOLUCIÓN: Emitir también al room del grupo
     this.server
       .to(`conversation:${conversationId}`)
       .emit('group_participants_updated', eventData);
@@ -619,26 +594,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const { conversationId, senderId, content, messageType, replyTo } = data;
 
-      // 1. Validar que el usuario esté en la conversación
-      const participants = await this.dynamoDBService.getConversationParticipants(conversationId);
-      const isUserInConversation = participants.some(p => p.userId === senderId);
-      
+      const participants =
+        await this.dynamoDBService.getConversationParticipants(conversationId);
+      const isUserInConversation = participants.some(
+        (p) => p.userId === senderId,
+      );
+
       if (!isUserInConversation) {
-        client.emit('reply_error', { error: 'Usuario no está en la conversación' });
+        client.emit('reply_error', {
+          error: 'Usuario no está en la conversación',
+        });
         return;
       }
 
-      // 2. Validar que el mensaje original existe
       const originalMessage = await this.dynamoDBService.getMessage(replyTo);
-      if (!originalMessage || originalMessage.conversationId !== conversationId) {
+      if (
+        !originalMessage ||
+        originalMessage.conversationId !== conversationId
+      ) {
         client.emit('reply_error', { error: 'Mensaje original no encontrado' });
         return;
       }
 
-      // 3. Crear el mensaje de respuesta
       const messageId = uuidv4();
       const timestamp = new Date().toISOString();
-      
+
       const replyMessageData = {
         id: messageId,
         conversationId,
@@ -649,54 +629,53 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         isEdited: false,
         isDeleted: false,
         replyTo,
-        isReply: true
+        isReply: true,
       };
 
       await this.dynamoDBService.createMessage(replyMessageData);
 
-      // 4. Generar replyPreview del mensaje original
       let replyPreview = originalMessage.content;
-      if (originalMessage.messageType === 'file' || originalMessage.messageType === 'audio') {
+      if (
+        originalMessage.messageType === 'file' ||
+        originalMessage.messageType === 'audio'
+      ) {
         try {
           const fileData = JSON.parse(originalMessage.content);
-          const fileType = originalMessage.messageType === 'audio' ? 'Audio' : 'Archivo';
+          const fileType =
+            originalMessage.messageType === 'audio' ? 'Audio' : 'Archivo';
           replyPreview = `${fileType}: ${fileData.fileName || 'Sin nombre'}`;
         } catch {
-          replyPreview = originalMessage.messageType === 'audio' ? 'Audio' : 'Archivo';
+          replyPreview =
+            originalMessage.messageType === 'audio' ? 'Audio' : 'Archivo';
         }
       }
 
-      // Truncar si es muy largo
       if (replyPreview.length > 100) {
         replyPreview = replyPreview.substring(0, 97) + '...';
       }
 
-      // 5. Obtener información del usuario remitente
       const user = await this.dynamoDBService.getUser(senderId);
       const senderInfo = {
         id: senderId,
         name: user?.name || 'Usuario',
-        avatar: user?.avatar || ''
+        avatar: user?.avatar || '',
       };
 
-      // 6. Emitir evento reply_received a todos en la conversación
       const eventData = {
         ...replyMessageData,
         replyPreview,
-        sender: senderInfo
+        sender: senderInfo,
       };
 
       this.server
         .to(`conversation:${conversationId}`)
         .emit('reply_received', eventData);
 
-      // 7. Confirmar envío exitoso al remitente
       client.emit('reply_sent_success', {
         messageId,
         conversationId,
-        timestamp
+        timestamp,
       });
-
     } catch (error) {
       console.error('Error processing reply:', error);
       client.emit('reply_error', { error: 'Error interno del servidor' });
