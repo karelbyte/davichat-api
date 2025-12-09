@@ -160,6 +160,98 @@ export class AppController {
     return { success: true, conversationId, userId: data.userId };
   }
 
+  @Delete('api/conversations/:id/participants/:userId')
+  async removeParticipant(
+    @Param('id') conversationId: string,
+    @Param('userId') userId: string,
+  ) {
+    const conversation =
+      await this.dynamoDBService.getConversation(conversationId);
+    if (!conversation) {
+      throw new BadRequestException('Conversación no encontrada');
+    }
+
+    if (conversation.type !== 'group') {
+      throw new BadRequestException('Solo puedes salir de grupos');
+    }
+
+    // Verificar que el usuario es participante
+    const participant = await this.dynamoDBService.getParticipant(
+      conversationId,
+      userId,
+    );
+    if (!participant) {
+      throw new BadRequestException(
+        'El usuario no es participante de este grupo',
+      );
+    }
+
+    // Remover participante
+    await this.dynamoDBService.removeParticipant(conversationId, userId);
+
+    // Obtener participantes actualizados
+    const updatedParticipants =
+      await this.dynamoDBService.getConversationParticipants(conversationId);
+    const updatedParticipantIds = updatedParticipants.map((p) => p.userId);
+
+    // Obtener información del usuario
+    const user = await this.dynamoDBService.getUser(userId);
+    const userName = user?.name || 'Usuario';
+
+    // Emitir eventos WebSocket para notificar a los demás participantes
+    const groupUpdateEventData = {
+      conversationId,
+      conversationName: conversation.name,
+      participants: updatedParticipantIds,
+      participantCount: updatedParticipantIds.length,
+      updatedAt: new Date().toISOString(),
+      action: 'remove' as const,
+      affectedUsers: [userId],
+      updatedBy: userId,
+      leftBy: userName,
+    };
+
+    // Emitir a cada participante restante
+    for (const participant of updatedParticipants) {
+      this.chatGateway.server
+        .to(`user:${participant.userId}`)
+        .emit('user_left_group', {
+          conversationId,
+          conversationName: conversation.name,
+          userId,
+          userName,
+          leftBy: userName,
+          timestamp: new Date().toISOString(),
+        });
+      this.chatGateway.server
+        .to(`user:${participant.userId}`)
+        .emit('group_participants_updated', groupUpdateEventData);
+    }
+
+    // Emitir al room del grupo
+    this.chatGateway.server
+      .to(`conversation:${conversationId}`)
+      .emit('user_left_group', {
+        conversationId,
+        conversationName: conversation.name,
+        userId,
+        userName,
+        leftBy: userName,
+        timestamp: new Date().toISOString(),
+      });
+    this.chatGateway.server
+      .to(`conversation:${conversationId}`)
+      .emit('group_participants_updated', groupUpdateEventData);
+
+    return {
+      success: true,
+      conversationId,
+      userId,
+      message: 'Usuario removido del grupo correctamente',
+      participantCount: updatedParticipantIds.length,
+    };
+  }
+
   @Get('api/conversations/user/:userId')
   async getUserConversations(@Param('userId') userId: string) {
     const conversations =

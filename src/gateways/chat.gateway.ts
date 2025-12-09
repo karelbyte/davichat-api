@@ -460,6 +460,170 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
   }
 
+  @SubscribeMessage('leave_group')
+  async handleLeaveGroup(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: { conversationId: string; userId: string },
+  ) {
+    const { conversationId, userId } = data;
+
+    console.log(
+      '🚪 [WebSocket] Usuario intentando salir del grupo:',
+      { conversationId, userId },
+    );
+
+    // Verificar que la conversación existe
+    const conversation =
+      await this.dynamoDBService.getConversation(conversationId);
+    if (!conversation) {
+      console.log('❌ [WebSocket] Conversación no encontrada');
+      client.emit('leave_group_error', {
+        error: 'Conversación no encontrada',
+      });
+      return;
+    }
+
+    // Verificar que es un grupo
+    if (conversation.type !== 'group') {
+      console.log('❌ [WebSocket] No es una conversación de grupo');
+      client.emit('leave_group_error', {
+        error: 'Solo puedes salir de grupos',
+      });
+      return;
+    }
+
+    // Obtener participantes antes de remover
+    const participantsBefore =
+      await this.dynamoDBService.getConversationParticipants(conversationId);
+
+    // Verificar que el usuario es participante
+    const isParticipant = participantsBefore.some((p) => p.userId === userId);
+    if (!isParticipant) {
+      console.log('❌ [WebSocket] El usuario no es participante del grupo');
+      client.emit('leave_group_error', {
+        error: 'No eres participante de este grupo',
+      });
+      return;
+    }
+
+    // Remover participante de la base de datos
+    try {
+      await this.dynamoDBService.removeParticipant(conversationId, userId);
+      console.log('✅ [WebSocket] Participante removido de la base de datos');
+    } catch (error) {
+      console.error('❌ [WebSocket] Error al remover participante:', error);
+      client.emit('leave_group_error', {
+        error: 'Error al salir del grupo',
+      });
+      return;
+    }
+
+    // Obtener participantes después de remover
+    const participantsAfter =
+      await this.dynamoDBService.getConversationParticipants(conversationId);
+    const updatedParticipantIds = participantsAfter.map((p) => p.userId);
+    const participantCount = updatedParticipantIds.length;
+
+    // Salir del room de WebSocket
+    client.leave(`conversation:${conversationId}`);
+
+    // Obtener información del usuario que salió
+    const user = await this.dynamoDBService.getUser(userId);
+    const userName = user?.name || 'Usuario';
+
+    console.log(
+      '👥 [WebSocket] Participantes después de salir:',
+      updatedParticipantIds,
+    );
+    console.log(
+      '🔢 [WebSocket] Conteo final de participantes:',
+      participantCount,
+    );
+
+    // Evento para el usuario que salió
+    const leaveEventData = {
+      conversationId,
+      conversationName: conversation.name,
+      userId,
+      userName,
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log(
+      '📢 [WebSocket] Emitiendo evento user_left_group al usuario que salió...',
+    );
+    this.server.to(`user:${userId}`).emit('user_left_group', leaveEventData);
+    this.server.to(`user:${userId}`).emit('group_left', leaveEventData);
+
+    // Evento para los demás participantes del grupo
+    const groupUpdateEventData = {
+      conversationId,
+      conversationName: conversation.name,
+      participants: updatedParticipantIds,
+      participantCount,
+      updatedAt: new Date().toISOString(),
+      action: 'remove' as const,
+      affectedUsers: [userId],
+      updatedBy: userId,
+      leftBy: userName,
+    };
+
+    console.log(
+      '📢 [WebSocket] Emitiendo eventos a los demás participantes del grupo...',
+    );
+
+    // Emitir a cada participante restante individualmente
+    for (const participant of participantsAfter) {
+      const participantUserId = participant.userId;
+      console.log(
+        `📢 [WebSocket] Enviando eventos a participante: ${participantUserId}`,
+      );
+
+      // Evento específico de que un usuario salió
+      this.server
+        .to(`user:${participantUserId}`)
+        .emit('user_left_group', {
+          ...leaveEventData,
+          leftBy: userName,
+        });
+
+      // Evento de actualización de participantes
+      this.server
+        .to(`user:${participantUserId}`)
+        .emit('group_participants_updated', groupUpdateEventData);
+    }
+
+    // Emitir al room del grupo (para usuarios conectados)
+    this.server
+      .to(`conversation:${conversationId}`)
+      .emit('user_left_group', {
+        ...leaveEventData,
+        leftBy: userName,
+      });
+    this.server
+      .to(`conversation:${conversationId}`)
+      .emit('group_participants_updated', groupUpdateEventData);
+
+    console.log('🎉 [WebSocket] Proceso de salir del grupo completado');
+    console.log('📋 [WebSocket] RESUMEN FINAL:', {
+      conversationId,
+      conversationName: conversation.name,
+      userId,
+      userName,
+      participantsBefore: participantsBefore.length,
+      participantsAfter: participantsAfter.length,
+      finalParticipantCount: participantCount,
+    });
+
+    // Confirmar al cliente que salió exitosamente
+    client.emit('leave_group_success', {
+      conversationId,
+      conversationName: conversation.name,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   @SubscribeMessage('group_participants_updated')
   async handleGroupParticipantsUpdated(
     @ConnectedSocket() client: Socket,

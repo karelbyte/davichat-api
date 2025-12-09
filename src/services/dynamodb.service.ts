@@ -376,6 +376,46 @@ export class DynamoDBService implements OnModuleInit {
     }
   }
 
+  async removeParticipant(
+    conversationId: string,
+    userId: string,
+  ): Promise<void> {
+    console.log(
+      `📝 [DynamoDB] Removiendo participante - Table: conversation_participants - Operation: DELETE - Region: ${this.configService.get('app.dynamodb.region')}`,
+    );
+    console.log('👤 [DynamoDB] Detalles del participante a remover:', {
+      conversationId,
+      userId,
+    });
+
+    // Verificar que el participante existe
+    const existingParticipant = await this.getParticipant(conversationId, userId);
+    if (!existingParticipant) {
+      console.log(
+        '⚠️ [DynamoDB] El participante no existe en la conversación',
+      );
+      throw new Error('Participante no encontrado en la conversación');
+    }
+
+    const command = new DeleteCommand({
+      TableName: 'conversation_participants',
+      Key: {
+        conversationId,
+        userId,
+      },
+    });
+
+    try {
+      await this.client.send(command);
+      console.log(
+        '✅ [DynamoDB] Participante removido exitosamente de la conversación',
+      );
+    } catch (error) {
+      console.error('💥 [DynamoDB] Error al remover participante:', error);
+      throw error;
+    }
+  }
+
   async createMessage(messageData: any): Promise<void> {
     console.log(
       `📝 DynamoDB Write - Table: messages - Operation: CREATE - Region: ${this.configService.get('app.dynamodb.region')}`,
