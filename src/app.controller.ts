@@ -137,7 +137,18 @@ export class AppController {
       });
     }
 
-    return conversationData;
+    // Obtener el participante del usuario que creó la conversación para incluir unreadCount y lastReadAt
+    const creatorParticipant = await this.dynamoDBService.getParticipant(
+      conversationId,
+      data.createdBy,
+    );
+
+    // Retornar la conversación con los datos del participante
+    return {
+      ...conversationData,
+      unreadCount: creatorParticipant?.unreadCount || 0,
+      lastReadAt: creatorParticipant?.lastReadAt || new Date().toISOString(),
+    };
   }
 
   @Post('api/conversations/:id/participants')
@@ -186,6 +197,32 @@ export class AppController {
       );
     }
 
+    // Obtener participantes antes de remover
+    const participantsBefore =
+      await this.dynamoDBService.getConversationParticipants(conversationId);
+
+    // Verificar si el usuario que sale es el creador del grupo
+    const isCreator = conversation.createdBy === userId;
+    let newCreatorId: string | null = null;
+
+    // Si el creador sale, transferir propiedad a otro participante
+    if (isCreator && participantsBefore.length > 1) {
+      // Buscar otro participante (excluyendo al que sale)
+      const otherParticipant = participantsBefore.find(
+        (p) => p.userId !== userId,
+      );
+      if (otherParticipant?.userId) {
+        newCreatorId = otherParticipant.userId;
+        await this.dynamoDBService.updateConversationCreatedBy(
+          conversationId,
+          otherParticipant.userId,
+        );
+        console.log(
+          `👑 [REST] Propiedad del grupo transferida de ${userId} a ${otherParticipant.userId}`,
+        );
+      }
+    }
+
     // Remover participante
     await this.dynamoDBService.removeParticipant(conversationId, userId);
 
@@ -193,6 +230,51 @@ export class AppController {
     const updatedParticipants =
       await this.dynamoDBService.getConversationParticipants(conversationId);
     const updatedParticipantIds = updatedParticipants.map((p) => p.userId);
+    const participantCount = updatedParticipantIds.length;
+
+    // Si no quedan participantes, eliminar el grupo completo y su historial
+    if (participantCount === 0) {
+      console.log(
+        '🗑️ [REST] Grupo quedó vacío, eliminando grupo y su historial...',
+      );
+
+      try {
+        // Eliminar todos los mensajes del grupo
+        const deletedMessagesCount =
+          await this.dynamoDBService.deleteConversationMessages(
+            conversationId,
+          );
+        console.log(
+          `✅ [REST] ${deletedMessagesCount} mensajes eliminados del grupo`,
+        );
+
+        // Eliminar la conversación
+        await this.dynamoDBService.deleteConversation(conversationId);
+        console.log('✅ [REST] Grupo eliminado completamente');
+
+        // Notificar a todos los usuarios conectados que el grupo fue eliminado
+        this.chatGateway.server.emit('group_deleted', {
+          conversationId,
+          conversationName: conversation.name,
+          timestamp: new Date().toISOString(),
+        });
+
+        return {
+          success: true,
+          conversationId,
+          userId,
+          message: 'Usuario removido del grupo. El grupo fue eliminado porque quedó vacío.',
+          participantCount: 0,
+          groupDeleted: true,
+          deletedMessagesCount,
+        };
+      } catch (error) {
+        console.error('❌ [REST] Error al eliminar grupo vacío:', error);
+        throw new BadRequestException(
+          'Error al eliminar el grupo vacío: ' + error.message,
+        );
+      }
+    }
 
     // Obtener información del usuario
     const user = await this.dynamoDBService.getUser(userId);
@@ -209,7 +291,19 @@ export class AppController {
       affectedUsers: [userId],
       updatedBy: userId,
       leftBy: userName,
+      ownershipTransferred: isCreator && newCreatorId ? true : false,
+      newOwnerId: newCreatorId || undefined,
     };
+
+    // Si se transfirió la propiedad, obtener información del nuevo propietario
+    let newOwnerName: string | undefined = undefined;
+    if (isCreator && newCreatorId) {
+      const newOwner = await this.dynamoDBService.getUser(newCreatorId);
+      newOwnerName = newOwner?.name || 'Usuario';
+      console.log(
+        `👑 [REST] Nuevo propietario del grupo: ${newOwnerName} (${newCreatorId})`,
+      );
+    }
 
     // Emitir a cada participante restante
     for (const participant of updatedParticipants) {
@@ -222,10 +316,16 @@ export class AppController {
           userName,
           leftBy: userName,
           timestamp: new Date().toISOString(),
+          ownershipTransferred: isCreator && newCreatorId ? true : false,
+          newOwnerId: newCreatorId || undefined,
+          newOwnerName: newOwnerName,
         });
       this.chatGateway.server
         .to(`user:${participant.userId}`)
-        .emit('group_participants_updated', groupUpdateEventData);
+        .emit('group_participants_updated', {
+          ...groupUpdateEventData,
+          newOwnerName: newOwnerName,
+        });
     }
 
     // Emitir al room del grupo
@@ -238,10 +338,16 @@ export class AppController {
         userName,
         leftBy: userName,
         timestamp: new Date().toISOString(),
+        ownershipTransferred: isCreator && newCreatorId ? true : false,
+        newOwnerId: newCreatorId || undefined,
+        newOwnerName: newOwnerName,
       });
     this.chatGateway.server
       .to(`conversation:${conversationId}`)
-      .emit('group_participants_updated', groupUpdateEventData);
+      .emit('group_participants_updated', {
+        ...groupUpdateEventData,
+        newOwnerName: newOwnerName,
+      });
 
     return {
       success: true,
@@ -257,6 +363,33 @@ export class AppController {
     const conversations =
       await this.dynamoDBService.getUserConversations(userId);
     return conversations;
+  }
+
+  @Post('api/conversations/:id/mark-as-read')
+  async markConversationAsRead(
+    @Param('id') conversationId: string,
+    @Body() data: { userId: string },
+  ) {
+    await this.dynamoDBService.updateParticipantReadStatus(
+      conversationId,
+      data.userId,
+      0,
+      new Date().toISOString(),
+    );
+
+    // Emitir evento WebSocket para notificar
+    this.chatGateway.server.to(`user:${data.userId}`).emit('messages_marked_as_read', {
+      conversationId,
+      userId: data.userId,
+      timestamp: new Date().toISOString(),
+    });
+
+    return {
+      success: true,
+      conversationId,
+      userId: data.userId,
+      message: 'Mensajes marcados como leídos',
+    };
   }
 
   @Get('api/messages/:conversationId')
