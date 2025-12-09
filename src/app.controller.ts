@@ -216,10 +216,10 @@ export class AppController {
       isDeleted: false,
     };
 
-    // Save message to database
+
     await this.dynamoDBService.createMessage(messageData);
 
-    // Get conversation and participants for WebSocket emission
+
     const conversation = await this.dynamoDBService.getConversation(
       body.conversationId,
     );
@@ -227,12 +227,12 @@ export class AppController {
       body.conversationId,
     );
 
-    // Emit message to all participants via WebSocket
+
     this.chatGateway.server
       .to(`conversation:${body.conversationId}`)
       .emit('message_received', messageData);
 
-    // Handle unread notifications for offline participants
+
     const onlineUsers = await this.redisService.getOnlineUsers();
 
     for (const participant of participants) {
@@ -258,10 +258,17 @@ export class AppController {
               : 'unread_message_group',
             unreadEvent,
           );
+      } else {
+        const currentUnreadCount = participant.unreadCount || 0;
+        await this.dynamoDBService.updateParticipantReadStatus(
+          body.conversationId,
+          participant.userId,
+          currentUnreadCount + 1,
+          participant.lastReadAt || new Date(0).toISOString(),
+        );
       }
     }
 
-    // Return the complete message data instead of just file data
     return {
       ...fileData,
       messageId,
@@ -272,7 +279,7 @@ export class AppController {
   }
 
   @Get('api/files/:fileName')
-  serveFile(@Param('fileName') fileName: string, @Res() res: Response) {
+  async serveFile(@Param('fileName') fileName: string, @Res() res: Response) {
     try {
       const storageType = this.fileStorageService['storageType'];
       let filePath: string;
@@ -290,12 +297,34 @@ export class AppController {
         return res.status(404).json({ error: 'File not found' });
       }
 
+      // Buscar el nombre original en la base de datos
+      const fileUrl = `/api/files/${fileName}`;
+      let downloadFileName = fileName;
+      
+      try {
+        const message = await this.dynamoDBService.getMessageByFileUrl(fileUrl);
+        if (message && message.content) {
+          const fileData = JSON.parse(message.content);
+          if (fileData.fileName) {
+            downloadFileName = fileData.fileName; // Usar el nombre original
+          }
+        }
+      } catch (error) {
+        // Si no se encuentra, usar el fileName de la URL
+        console.warn('No se pudo obtener nombre original, usando:', fileName);
+      }
+
       const stats = fs.statSync(filePath);
       const fileStream = fs.createReadStream(filePath);
+
+      // Codificar el nombre para el header
+      const escapedFileName = downloadFileName.replace(/"/g, '\\"');
+      const encodedFileName = encodeURIComponent(downloadFileName);
 
       res.set({
         'Content-Length': stats.size.toString(),
         'Content-Type': this.getMimeType(fileName),
+        'Content-Disposition': `attachment; filename="${escapedFileName}"; filename*=UTF-8''${encodedFileName}`,
         'Cache-Control': 'public, max-age=31536000',
       });
 

@@ -167,6 +167,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               : 'unread_message_group',
             unreadEvent,
           );
+      } else {
+        // ✅ Usuario offline: incrementar unreadCount en la base de datos
+        const currentUnreadCount = participant.unreadCount || 0;
+        await this.dynamoDBService.updateParticipantReadStatus(
+          conversationId,
+          participant.userId,
+          currentUnreadCount + 1,
+          participant.lastReadAt || new Date(0).toISOString(),
+        );
       }
     }
   }

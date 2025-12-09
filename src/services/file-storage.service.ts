@@ -53,7 +53,8 @@ export class FileStorageService {
     this.s3Bucket =
       this.configService.get('app.fileStorage.s3.bucket') || 'chat-files';
     this.ebsMountPath =
-      this.configService.get('app.fileStorage.ebs.mountPath') || '/mnt/ebs-uploads';
+      this.configService.get('app.fileStorage.ebs.mountPath') ||
+      '/mnt/ebs-uploads';
     this.ebsMaxSize =
       this.configService.get('app.fileStorage.ebs.maxSize') || 107374182400;
 
@@ -124,15 +125,51 @@ export class FileStorageService {
     fileType: string;
     thumbnailUrl?: string;
   }> {
-    const fileId = uuidv4();
-    const fileExtension = path.extname(file.originalname);
-    const fileName = `${fileId}${fileExtension}`;
+    // Usar el nombre original del archivo, sanitizado
+    let fileName = file.originalname;
+
+    // Sanitizar el nombre del archivo: eliminar caracteres peligrosos
+    fileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+    // Si el nombre está vacío después de sanitizar, usar un nombre por defecto
+    if (!fileName || fileName.trim() === '') {
+      const fileExtension = path.extname(file.originalname) || '.bin';
+      fileName = `file_${Date.now()}${fileExtension}`;
+    }
+
+    // Verificar si el archivo ya existe y agregar timestamp solo si hay colisión
+    let finalFileName = fileName;
     if (this.storageType === 'local') {
-      return this.uploadToLocal(file, fileName);
-    } else if (this.storageType === 'aws') {
-      return this.uploadToS3(file, fileName);
+      const filePath = path.join(this.localPath, fileName);
+      if (fs.existsSync(filePath)) {
+        const unixTimestamp = Math.floor(Date.now() / 1000);
+        const fileExtension = path.extname(fileName);
+        const baseName = path.basename(fileName, fileExtension);
+        finalFileName = `${baseName}-${unixTimestamp}${fileExtension}`;
+      }
     } else if (this.storageType === 'ebs') {
-      return this.uploadToEbs(file, fileName);
+      const filePath = path.join(this.ebsMountPath, fileName);
+      if (fs.existsSync(filePath)) {
+        const unixTimestamp = Math.floor(Date.now() / 1000);
+        const fileExtension = path.extname(fileName);
+        const baseName = path.basename(fileName, fileExtension);
+        finalFileName = `${baseName}-${unixTimestamp}${fileExtension}`;
+      }
+    }
+    // Para AWS S3, no podemos verificar fácilmente, así que siempre agregamos timestamp
+    else if (this.storageType === 'aws') {
+      const unixTimestamp = Math.floor(Date.now() / 1000);
+      const fileExtension = path.extname(fileName);
+      const baseName = path.basename(fileName, fileExtension);
+      finalFileName = `${baseName}-${unixTimestamp}${fileExtension}`;
+    }
+
+    if (this.storageType === 'local') {
+      return this.uploadToLocal(file, finalFileName);
+    } else if (this.storageType === 'aws') {
+      return this.uploadToS3(file, finalFileName);
+    } else if (this.storageType === 'ebs') {
+      return this.uploadToEbs(file, finalFileName);
     } else {
       throw new Error(`Invalid storage type: ${this.storageType}`);
     }

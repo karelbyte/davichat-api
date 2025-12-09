@@ -429,12 +429,7 @@ export class DynamoDBService implements OnModuleInit {
 
   async getUserConversations(userId: string): Promise<any[]> {
     try {
-      console.log(
-        '🔍 [DynamoDB] Obteniendo conversaciones del usuario:',
-        userId,
-      );
-
-      const command = new QueryCommand({
+       const command = new QueryCommand({
         TableName: 'conversation_participants',
         IndexName: 'userId-index',
         KeyConditionExpression: 'userId = :userId',
@@ -445,26 +440,20 @@ export class DynamoDBService implements OnModuleInit {
       const result = await this.client.send(command);
       const conversations: any[] = [];
 
-      console.log(
-        '👥 [DynamoDB] Participaciones encontradas:',
-        result.Items?.length || 0,
-      );
-
       for (const participant of result.Items || []) {
         const conversation = await this.getConversation(
           participant.conversationId,
         );
         if (conversation) {
-          // ✅ NUEVO: Obtener participantes activos de conversation_participants
           const activeParticipants = await this.getConversationParticipants(
             conversation.id,
           );
           const activeParticipantIds = activeParticipants.map((p) => p.userId);
-
-          // ✅ SOLUCIÓN: Crear conversación con participantes actualizados
           const updatedConversation = {
             ...conversation,
             participants: activeParticipantIds, // ← Usar participantes activos
+            unreadCount: participant.unreadCount || 0, // ← Contador de no leídos
+            lastReadAt: participant.lastReadAt || null, // ← Última vez que leyó
           };
 
           conversations.push(updatedConversation);
@@ -473,7 +462,7 @@ export class DynamoDBService implements OnModuleInit {
       return conversations;
     } catch (error) {
       console.error(
-        '💥 [DynamoDB] Error en getUserConversations, usando fallback:',
+        '[DynamoDB] Error en getUserConversations, usando fallback:',
         error,
       );
 
@@ -492,15 +481,17 @@ export class DynamoDBService implements OnModuleInit {
           participant.conversationId,
         );
         if (conversation) {
-          // ✅ NUEVO: Obtener participantes activos también en el fallback
           const activeParticipants = await this.getConversationParticipants(
             conversation.id,
           );
           const activeParticipantIds = activeParticipants.map((p) => p.userId);
 
+          // ✅ INCLUIR: unreadCount y lastReadAt del participante actual
           const updatedConversation = {
             ...conversation,
             participants: activeParticipantIds, // ← Usar participantes activos
+            unreadCount: participant.unreadCount || 0, // ← Contador de no leídos
+            lastReadAt: participant.lastReadAt || null, // ← Última vez que leyó
           };
 
           conversations.push(updatedConversation);
@@ -616,6 +607,25 @@ export class DynamoDBService implements OnModuleInit {
       return result.Items && result.Items.length > 0 ? result.Items[0] : null;
     } catch (error) {
       console.error('Error getting message:', error);
+      throw error;
+    }
+  }
+
+  async getMessageByFileUrl(fileUrl: string): Promise<any> {
+    try {
+      const scanCommand = new ScanCommand({
+        TableName: 'messages',
+        FilterExpression: 'contains(content, :fileUrl) AND messageType = :messageType',
+        ExpressionAttributeValues: {
+          ':fileUrl': fileUrl,
+          ':messageType': 'file',
+        },
+      });
+
+      const result = await this.client.send(scanCommand);
+      return result.Items && result.Items.length > 0 ? result.Items[0] : null;
+    } catch (error) {
+      console.error('Error getting message by file URL:', error);
       throw error;
     }
   }
