@@ -34,13 +34,9 @@ export class AppController {
   @Get()
   serveIndex(@Res() res: Response) {
     const indexPath = path.join(__dirname, '../public/index.html');
-    console.log('Checking index path:', indexPath);
-    console.log('Index exists:', fs.existsSync(indexPath));
     if (fs.existsSync(indexPath)) {
-      console.log('Serving index.html');
       res.sendFile(indexPath);
     } else {
-      console.log('Index not found, sending fallback message');
       res.send('Chat API running');
     }
   }
@@ -68,7 +64,7 @@ export class AppController {
     if (!user) {
       throw new BadRequestException('Usuario no encontrado');
     }
-    
+
     const onlineUsers = await this.redisService.getOnlineUsers();
     return {
       ...user,
@@ -78,15 +74,12 @@ export class AppController {
 
   @Post('api/users')
   async createUser(@Body() userData: any) {
-    // Verificar si el usuario ya existe
     const existingUser = await this.dynamoDBService.getUser(userData.id);
-    
+
     if (existingUser) {
-      // Usuario existe: actualizar solo los campos enviados, preservando el avatar
       await this.dynamoDBService.updateUser(userData.id, userData);
       return { ...existingUser, ...userData };
     } else {
-      // Usuario no existe: crear nuevo
       await this.dynamoDBService.createUser(userData);
       return userData;
     }
@@ -137,13 +130,11 @@ export class AppController {
       });
     }
 
-    // Obtener el participante del usuario que creó la conversación para incluir unreadCount y lastReadAt
     const creatorParticipant = await this.dynamoDBService.getParticipant(
       conversationId,
       data.createdBy,
     );
 
-    // Retornar la conversación con los datos del participante
     return {
       ...conversationData,
       unreadCount: creatorParticipant?.unreadCount || 0,
@@ -186,7 +177,6 @@ export class AppController {
       throw new BadRequestException('Solo puedes salir de grupos');
     }
 
-    // Verificar que el usuario es participante
     const participant = await this.dynamoDBService.getParticipant(
       conversationId,
       userId,
@@ -197,17 +187,14 @@ export class AppController {
       );
     }
 
-    // Obtener participantes antes de remover
     const participantsBefore =
       await this.dynamoDBService.getConversationParticipants(conversationId);
 
-    // Verificar si el usuario que sale es el creador del grupo
-    const isCreator = conversation.createdBy === userId;
+    const originalCreatedBy = conversation.createdBy;
+    const isOriginalCreator = originalCreatedBy === userId;
     let newCreatorId: string | null = null;
 
-    // Si el creador sale, transferir propiedad a otro participante
-    if (isCreator && participantsBefore.length > 1) {
-      // Buscar otro participante (excluyendo al que sale)
+    if (isOriginalCreator && participantsBefore.length > 1) {
       const otherParticipant = participantsBefore.find(
         (p) => p.userId !== userId,
       );
@@ -217,42 +204,54 @@ export class AppController {
           conversationId,
           otherParticipant.userId,
         );
-        console.log(
-          `👑 [REST] Propiedad del grupo transferida de ${userId} a ${otherParticipant.userId}`,
-        );
       }
     }
 
-    // Remover participante
     await this.dynamoDBService.removeParticipant(conversationId, userId);
 
-    // Obtener participantes actualizados
+    await new Promise((resolve) => setTimeout(resolve, 100));
     const updatedParticipants =
       await this.dynamoDBService.getConversationParticipants(conversationId);
     const updatedParticipantIds = updatedParticipants.map((p) => p.userId);
     const participantCount = updatedParticipantIds.length;
 
-    // Si no quedan participantes, eliminar el grupo completo y su historial
-    if (participantCount === 0) {
-      console.log(
-        '🗑️ [REST] Grupo quedó vacío, eliminando grupo y su historial...',
+    const stillParticipant = updatedParticipants.some(
+      (p) => p.userId === userId,
+    );
+    if (stillParticipant) {
+      console.error(
+        'El participante aún existe después de intentar eliminarlo',
       );
+      throw new BadRequestException(
+        'Error: el participante no se eliminó correctamente',
+      );
+    }
 
+    if (participantCount === 0) {
       try {
-        // Eliminar todos los mensajes del grupo
-        const deletedMessagesCount =
-          await this.dynamoDBService.deleteConversationMessages(
+        const remainingParticipants =
+          await this.dynamoDBService.getConversationParticipants(
             conversationId,
           );
-        console.log(
-          `✅ [REST] ${deletedMessagesCount} mensajes eliminados del grupo`,
-        );
+        for (const participant of remainingParticipants) {
+          try {
+            await this.dynamoDBService.removeParticipant(
+              conversationId,
+              participant.userId,
+            );
+          } catch (error) {
+            console.error(
+              `Error al eliminar participante restante ${participant.userId}:`,
+              error,
+            );
+          }
+        }
 
-        // Eliminar la conversación
+        const deletedMessagesCount =
+          await this.dynamoDBService.deleteConversationMessages(conversationId);
+
         await this.dynamoDBService.deleteConversation(conversationId);
-        console.log('✅ [REST] Grupo eliminado completamente');
 
-        // Notificar a todos los usuarios conectados que el grupo fue eliminado
         this.chatGateway.server.emit('group_deleted', {
           conversationId,
           conversationName: conversation.name,
@@ -263,24 +262,23 @@ export class AppController {
           success: true,
           conversationId,
           userId,
-          message: 'Usuario removido del grupo. El grupo fue eliminado porque quedó vacío.',
+          message:
+            'Usuario removido del grupo. El grupo fue eliminado porque quedó vacío.',
           participantCount: 0,
           groupDeleted: true,
           deletedMessagesCount,
         };
       } catch (error) {
-        console.error('❌ [REST] Error al eliminar grupo vacío:', error);
+        console.error('Error al eliminar grupo vacío:', error);
         throw new BadRequestException(
           'Error al eliminar el grupo vacío: ' + error.message,
         );
       }
     }
 
-    // Obtener información del usuario
     const user = await this.dynamoDBService.getUser(userId);
     const userName = user?.name || 'Usuario';
 
-    // Emitir eventos WebSocket para notificar a los demás participantes
     const groupUpdateEventData = {
       conversationId,
       conversationName: conversation.name,
@@ -291,21 +289,16 @@ export class AppController {
       affectedUsers: [userId],
       updatedBy: userId,
       leftBy: userName,
-      ownershipTransferred: isCreator && newCreatorId ? true : false,
+      ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
       newOwnerId: newCreatorId || undefined,
     };
 
-    // Si se transfirió la propiedad, obtener información del nuevo propietario
     let newOwnerName: string | undefined = undefined;
-    if (isCreator && newCreatorId) {
+    if (isOriginalCreator && newCreatorId) {
       const newOwner = await this.dynamoDBService.getUser(newCreatorId);
       newOwnerName = newOwner?.name || 'Usuario';
-      console.log(
-        `👑 [REST] Nuevo propietario del grupo: ${newOwnerName} (${newCreatorId})`,
-      );
     }
 
-    // Emitir a cada participante restante
     for (const participant of updatedParticipants) {
       this.chatGateway.server
         .to(`user:${participant.userId}`)
@@ -316,7 +309,8 @@ export class AppController {
           userName,
           leftBy: userName,
           timestamp: new Date().toISOString(),
-          ownershipTransferred: isCreator && newCreatorId ? true : false,
+          ownershipTransferred:
+            isOriginalCreator && newCreatorId ? true : false,
           newOwnerId: newCreatorId || undefined,
           newOwnerName: newOwnerName,
         });
@@ -328,7 +322,6 @@ export class AppController {
         });
     }
 
-    // Emitir al room del grupo
     this.chatGateway.server
       .to(`conversation:${conversationId}`)
       .emit('user_left_group', {
@@ -338,7 +331,7 @@ export class AppController {
         userName,
         leftBy: userName,
         timestamp: new Date().toISOString(),
-        ownershipTransferred: isCreator && newCreatorId ? true : false,
+        ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
         newOwnerId: newCreatorId || undefined,
         newOwnerName: newOwnerName,
       });
@@ -377,12 +370,13 @@ export class AppController {
       new Date().toISOString(),
     );
 
-    // Emitir evento WebSocket para notificar
-    this.chatGateway.server.to(`user:${data.userId}`).emit('messages_marked_as_read', {
-      conversationId,
-      userId: data.userId,
-      timestamp: new Date().toISOString(),
-    });
+    this.chatGateway.server
+      .to(`user:${data.userId}`)
+      .emit('messages_marked_as_read', {
+        conversationId,
+        userId: data.userId,
+        timestamp: new Date().toISOString(),
+      });
 
     return {
       success: true,
@@ -423,10 +417,8 @@ export class AppController {
       throw new BadRequestException(validation.error);
     }
 
-    // Upload file
     const fileData = await this.fileStorageService.uploadFile(file);
 
-    // Create message with file data
     const messageId = uuidv4();
     const timestamp = new Date().toISOString();
 
@@ -441,9 +433,7 @@ export class AppController {
       isDeleted: false,
     };
 
-
     await this.dynamoDBService.createMessage(messageData);
-
 
     const conversation = await this.dynamoDBService.getConversation(
       body.conversationId,
@@ -452,11 +442,9 @@ export class AppController {
       body.conversationId,
     );
 
-
     this.chatGateway.server
       .to(`conversation:${body.conversationId}`)
       .emit('message_received', messageData);
-
 
     const onlineUsers = await this.redisService.getOnlineUsers();
 
@@ -522,27 +510,22 @@ export class AppController {
         return res.status(404).json({ error: 'File not found' });
       }
 
-      // Buscar el nombre original en la base de datos
       const fileUrl = `/api/files/${fileName}`;
       let downloadFileName = fileName;
-      
+
       try {
         const message = await this.dynamoDBService.getMessageByFileUrl(fileUrl);
         if (message && message.content) {
           const fileData = JSON.parse(message.content);
           if (fileData.fileName) {
-            downloadFileName = fileData.fileName; // Usar el nombre original
+            downloadFileName = fileData.fileName;
           }
         }
-      } catch (error) {
-        // Si no se encuentra, usar el fileName de la URL
-        console.warn('No se pudo obtener nombre original, usando:', fileName);
-      }
+      } catch (error) {}
 
       const stats = fs.statSync(filePath);
       const fileStream = fs.createReadStream(filePath);
 
-      // Codificar el nombre para el header
       const escapedFileName = downloadFileName.replace(/"/g, '\\"');
       const encodedFileName = encodeURIComponent(downloadFileName);
 
@@ -585,7 +568,6 @@ export class AppController {
           fileName,
         );
       } else {
-        // Para AWS S3, redirigir a la URL completa
         const fileUrl = `https://${this.fileStorageService['s3Bucket']}.s3.amazonaws.com/avatars/${userId}/${fileName}`;
         return res.redirect(fileUrl);
       }
@@ -713,43 +695,35 @@ export class AppController {
       throw new BadRequestException('No se proporcionó archivo de avatar');
     }
 
-    // Validar que sea una imagen
     if (!file.mimetype.startsWith('image/')) {
       throw new BadRequestException('El archivo debe ser una imagen');
     }
 
-    // Validar tamaño del archivo (máximo 5MB para avatares)
-    const maxAvatarSize = 5 * 1024 * 1024; // 5MB
+    const maxAvatarSize = 5 * 1024 * 1024;
     if (file.size > maxAvatarSize) {
       throw new BadRequestException(
         'El archivo de avatar es demasiado grande (máximo 5MB)',
       );
     }
 
-    // Obtener usuario actual para verificar si tiene avatar anterior
     const currentUser = await this.dynamoDBService.getUser(userId);
     if (!currentUser) {
       throw new BadRequestException('Usuario no encontrado');
     }
 
-    // Subir nuevo avatar con estructura de carpetas por usuario
     const fileData = await this.fileStorageService.uploadUserAvatar(
       file,
       userId,
     );
 
-    // Actualizar usuario con nueva URL de avatar
     await this.dynamoDBService.updateUser(userId, {
       avatar: fileData.fileUrl,
     });
 
-    // Si había un avatar anterior, eliminarlo
     if (currentUser.avatar) {
       try {
         await this.fileStorageService.deleteFile(currentUser.avatar);
-      } catch (error) {
-        console.warn('No se pudo eliminar el avatar anterior:', error);
-      }
+      } catch (error) {}
     }
 
     return {
@@ -761,7 +735,6 @@ export class AppController {
 
   @Delete('api/users/:id/avatar')
   async deleteUserAvatar(@Param('id') userId: string) {
-    // Obtener usuario actual
     const currentUser = await this.dynamoDBService.getUser(userId);
     if (!currentUser) {
       throw new BadRequestException('Usuario no encontrado');
@@ -771,14 +744,10 @@ export class AppController {
       throw new BadRequestException('El usuario no tiene avatar');
     }
 
-    // Eliminar archivo de avatar
     try {
       await this.fileStorageService.deleteFile(currentUser.avatar);
-    } catch (error) {
-      console.warn('No se pudo eliminar el archivo de avatar:', error);
-    }
+    } catch (error) {}
 
-    // Actualizar usuario removiendo el campo avatar
     await this.dynamoDBService.updateUser(userId, {
       avatar: null,
     });
@@ -792,14 +761,10 @@ export class AppController {
   @Get('/admin')
   serveAdmin(@Res() res: Response) {
     const adminPath = path.join(__dirname, '../public/admin.html');
-    console.log('Checking admin path:', adminPath);
-    console.log('Admin exists:', fs.existsSync(adminPath));
 
     if (fs.existsSync(adminPath)) {
-      console.log('Serving admin.html');
       res.sendFile(adminPath);
     } else {
-      console.log('Admin not found, sending fallback message');
       res.send('Admin panel not found');
     }
   }

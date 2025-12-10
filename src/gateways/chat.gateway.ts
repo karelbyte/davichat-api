@@ -168,7 +168,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             unreadEvent,
           );
       } else {
-        // ✅ Usuario offline: incrementar unreadCount en la base de datos
         const currentUnreadCount = participant.unreadCount || 0;
         await this.dynamoDBService.updateParticipantReadStatus(
           conversationId,
@@ -302,44 +301,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const participantCountChange =
       participantsAfter.length - participantsBefore.length;
 
-    if (participantCountChange !== 1) {
-      const wasAlreadyParticipant = participantsBefore.some(
-        (p) => p.userId === userId,
-      );
-      if (wasAlreadyParticipant) {
-        console.log('⚠️ [WebSocket] El usuario ya era participante del grupo');
-      }
-    }
-
     const updatedParticipants =
       await this.dynamoDBService.getConversationParticipants(conversationId);
     const updatedParticipantIds = updatedParticipants.map((p) => p.userId);
     const participantCount = updatedParticipantIds.length;
 
-    console.log(
-      '👥 [WebSocket] Participantes finales para el evento:',
-      updatedParticipantIds,
-    );
-    console.log(
-      '🔢 [WebSocket] Conteo final de participantes:',
-      participantCount,
-    );
-
-    console.log(
-      '📢 [WebSocket] Emitiendo evento user_added_to_group a todos en el grupo...',
-    );
-    console.log(
-      '📢 [WebSocket] Room objetivo:',
-      `conversation:${conversationId}`,
-    );
-
     const room = this.server.sockets.adapter.rooms.get(
       `conversation:${conversationId}`,
-    );
-    const usersInRoom = room ? room.size : 0;
-    console.log(
-      '👥 [WebSocket] Usuarios en el room ANTES de emitir:',
-      usersInRoom,
     );
 
     const eventData = {
@@ -352,75 +320,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       timestamp: new Date().toISOString(),
     };
 
-    console.log(
-      '📢 [WebSocket] Emitiendo evento user_added_to_group al room del grupo...',
-    );
-    const emitResult = this.server
+    this.server
       .to(`conversation:${conversationId}`)
       .emit('user_added_to_group', eventData);
-    console.log(
-      '✅ [WebSocket] Evento user_added_to_group emitido al room. Resultado:',
-      emitResult,
-    );
-    console.log('📊 [WebSocket] Datos del evento enviados al room:', eventData);
-
-    console.log(
-      '📢 [WebSocket] Emitiendo evento user_added_to_group a cada participante individualmente...',
-    );
 
     for (const participant of updatedParticipants) {
       const participantUserId = participant.userId;
-      console.log(
-        `📢 [WebSocket] Enviando evento a participante: ${participantUserId}`,
-      );
-
-      const emitResultIndividual = this.server
+      this.server
         .to(`user:${participantUserId}`)
         .emit('user_added_to_group', eventData);
-      console.log(
-        `✅ [WebSocket] Evento enviado a ${participantUserId}. Resultado:`,
-        emitResultIndividual,
-      );
     }
 
-    console.log(
-      '📢 [WebSocket] Emitiendo evento user_added_to_group al usuario añadido específicamente...',
-    );
-    const emitResultSpecific = this.server
+    this.server
       .to(`user:${userId}`)
       .emit('user_added_to_group', eventData);
-    console.log(
-      '✅ [WebSocket] Evento user_added_to_group emitido al usuario añadido. Resultado:',
-      emitResultSpecific,
-    );
-
-    const roomAfter = this.server.sockets.adapter.rooms.get(
-      `conversation:${conversationId}`,
-    );
-    const usersInRoomAfter = roomAfter ? roomAfter.size : 0;
-    console.log(
-      '👥 [WebSocket] Usuarios en el room DESPUÉS de emitir:',
-      usersInRoomAfter,
-    );
-
-    console.log('🎉 [WebSocket] Proceso de añadir usuario al grupo completado');
-    console.log('📋 [WebSocket] RESUMEN FINAL:', {
-      conversationId,
-      conversationName: conversation.name,
-      userId,
-      addedBy,
-      participantsBefore: participantsBefore.length,
-      participantsAfter: participantsAfter.length,
-      participantCountChange,
-      finalParticipantCount: participantCount,
-      usersInRoomBefore: usersInRoom,
-      usersInRoomAfter: usersInRoomAfter,
-      totalParticipants: updatedParticipants.length,
-    });
-
-    console.log(
-      '📢 [WebSocket] Emitiendo evento group_participants_updated para actualización masiva...',
-    );
     const groupUpdateEventData = {
       conversationId,
       conversationName: conversation.name,
@@ -434,30 +347,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     for (const participant of updatedParticipants) {
       const participantUserId = participant.userId;
-      console.log(
-        `📢 [WebSocket] Enviando group_participants_updated a: ${participantUserId}`,
-      );
-
-      const emitResultGroup = this.server
+      this.server
         .to(`user:${participantUserId}`)
         .emit('group_participants_updated', groupUpdateEventData);
-      console.log(
-        `✅ [WebSocket] group_participants_updated enviado a ${participantUserId}. Resultado:`,
-        emitResultGroup,
-      );
     }
 
-    const emitResultGroupRoom = this.server
+    this.server
       .to(`conversation:${conversationId}`)
       .emit('group_participants_updated', groupUpdateEventData);
-    console.log(
-      '✅ [WebSocket] group_participants_updated enviado al room. Resultado:',
-      emitResultGroupRoom,
-    );
-
-    console.log(
-      '🎉 [WebSocket] Proceso completo de añadir usuario al grupo terminado',
-    );
   }
 
   @SubscribeMessage('leave_group')
@@ -468,52 +365,38 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const { conversationId, userId } = data;
 
-    console.log(
-      '🚪 [WebSocket] Usuario intentando salir del grupo:',
-      { conversationId, userId },
-    );
-
-    // Verificar que la conversación existe
     const conversation =
       await this.dynamoDBService.getConversation(conversationId);
     if (!conversation) {
-      console.log('❌ [WebSocket] Conversación no encontrada');
       client.emit('leave_group_error', {
         error: 'Conversación no encontrada',
       });
       return;
     }
 
-    // Verificar que es un grupo
     if (conversation.type !== 'group') {
-      console.log('❌ [WebSocket] No es una conversación de grupo');
       client.emit('leave_group_error', {
         error: 'Solo puedes salir de grupos',
       });
       return;
     }
 
-    // Obtener participantes antes de remover
     const participantsBefore =
       await this.dynamoDBService.getConversationParticipants(conversationId);
 
-    // Verificar que el usuario es participante
     const isParticipant = participantsBefore.some((p) => p.userId === userId);
     if (!isParticipant) {
-      console.log('❌ [WebSocket] El usuario no es participante del grupo');
       client.emit('leave_group_error', {
         error: 'No eres participante de este grupo',
       });
       return;
     }
 
-    // Verificar si el usuario que sale es el creador del grupo
-    const isCreator = conversation.createdBy === userId;
+    const originalCreatedBy = conversation.createdBy;
+    const isOriginalCreator = originalCreatedBy === userId;
     let newCreatorId: string | null = null;
 
-    // Si el creador sale, transferir propiedad a otro participante
-    if (isCreator && participantsBefore.length > 1) {
-      // Buscar otro participante (excluyendo al que sale)
+    if (isOriginalCreator && participantsBefore.length > 1) {
       const otherParticipant = participantsBefore.find(
         (p) => p.userId !== userId,
       );
@@ -523,51 +406,90 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           conversationId,
           otherParticipant.userId,
         );
-        console.log(
-          `👑 [WebSocket] Propiedad del grupo transferida de ${userId} a ${otherParticipant.userId}`,
-        );
       }
     }
 
-    // Remover participante de la base de datos
     try {
       await this.dynamoDBService.removeParticipant(conversationId, userId);
-      console.log('✅ [WebSocket] Participante removido de la base de datos');
     } catch (error) {
-      console.error('❌ [WebSocket] Error al remover participante:', error);
-      client.emit('leave_group_error', {
-        error: 'Error al salir del grupo',
-      });
-      return;
+      if (error.message && error.message.includes('no encontrado')) {
+        const verifyParticipant =
+          await this.dynamoDBService.getParticipant(conversationId, userId);
+        if (!verifyParticipant) {
+        } else {
+          console.error('Error inesperado:', error);
+          client.emit('leave_group_error', {
+            error: 'Error al salir del grupo',
+          });
+          return;
+        }
+      } else {
+        console.error('Error al remover participante:', error);
+        client.emit('leave_group_error', {
+          error: 'Error al salir del grupo',
+        });
+        return;
+      }
     }
 
-    // Obtener participantes después de remover
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    
+    const verifyParticipantStillExists =
+      await this.dynamoDBService.getParticipant(conversationId, userId);
+    if (verifyParticipantStillExists) {
+      try {
+        await this.dynamoDBService.removeParticipant(conversationId, userId);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      } catch (error) {
+        console.error('Error en eliminación forzada:', error);
+      }
+    }
+    
     const participantsAfter =
       await this.dynamoDBService.getConversationParticipants(conversationId);
     const updatedParticipantIds = participantsAfter.map((p) => p.userId);
     const participantCount = updatedParticipantIds.length;
 
-    // Si no quedan participantes, eliminar el grupo completo y su historial
-    if (participantCount === 0) {
-      console.log(
-        '🗑️ [WebSocket] Grupo quedó vacío, eliminando grupo y su historial...',
+    const stillParticipant = participantsAfter.some((p) => p.userId === userId);
+    if (stillParticipant) {
+      console.error(
+        'El participante aún existe después de intentar eliminarlo',
+        {
+          userId,
+          participantsAfter: updatedParticipantIds,
+        },
       );
+      client.emit('leave_group_error', {
+        error: 'Error: el participante no se eliminó correctamente',
+      });
+      return;
+    }
 
+    if (participantCount === 0) {
       try {
-        // Eliminar todos los mensajes del grupo
+        const remainingParticipants =
+          await this.dynamoDBService.getConversationParticipants(conversationId);
+        for (const participant of remainingParticipants) {
+          try {
+            await this.dynamoDBService.removeParticipant(
+              conversationId,
+              participant.userId,
+            );
+          } catch (error) {
+            console.error(
+              `Error al eliminar participante restante ${participant.userId}:`,
+              error,
+            );
+          }
+        }
+
         const deletedMessagesCount =
           await this.dynamoDBService.deleteConversationMessages(
             conversationId,
           );
-        console.log(
-          `✅ [WebSocket] ${deletedMessagesCount} mensajes eliminados del grupo`,
-        );
 
-        // Eliminar la conversación
         await this.dynamoDBService.deleteConversation(conversationId);
-        console.log('✅ [WebSocket] Grupo eliminado completamente');
 
-        // Notificar al usuario que salió que el grupo fue eliminado
         client.emit('leave_group_success', {
           conversationId,
           conversationName: conversation.name,
@@ -576,41 +498,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           deletedMessagesCount,
         });
 
-        // Notificar a todos los usuarios conectados que el grupo fue eliminado
         this.server.emit('group_deleted', {
           conversationId,
           conversationName: conversation.name,
           timestamp: new Date().toISOString(),
         });
 
-        console.log('🎉 [WebSocket] Proceso de eliminación de grupo completado');
         return;
       } catch (error) {
-        console.error(
-          '❌ [WebSocket] Error al eliminar grupo vacío:',
-          error,
-        );
-        // Continuar con el flujo normal aunque falle la eliminación
+        console.error('Error al eliminar grupo vacío:', error);
+        client.emit('leave_group_error', {
+          error: 'Error al eliminar el grupo vacío',
+        });
+        return;
       }
     }
 
-    // Salir del room de WebSocket
     client.leave(`conversation:${conversationId}`);
 
-    // Obtener información del usuario que salió
     const user = await this.dynamoDBService.getUser(userId);
     const userName = user?.name || 'Usuario';
 
-    console.log(
-      '👥 [WebSocket] Participantes después de salir:',
-      updatedParticipantIds,
-    );
-    console.log(
-      '🔢 [WebSocket] Conteo final de participantes:',
-      participantCount,
-    );
-
-    // Evento para el usuario que salió
     const leaveEventData = {
       conversationId,
       conversationName: conversation.name,
@@ -619,13 +527,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       timestamp: new Date().toISOString(),
     };
 
-    console.log(
-      '📢 [WebSocket] Emitiendo evento user_left_group al usuario que salió...',
-    );
     this.server.to(`user:${userId}`).emit('user_left_group', leaveEventData);
     this.server.to(`user:${userId}`).emit('group_left', leaveEventData);
 
-    // Evento para los demás participantes del grupo
     const groupUpdateEventData = {
       conversationId,
       conversationName: conversation.name,
@@ -636,43 +540,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       affectedUsers: [userId],
       updatedBy: userId,
       leftBy: userName,
-      ownershipTransferred: isCreator && newCreatorId ? true : false,
+      ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
       newOwnerId: newCreatorId || undefined,
     };
 
-    console.log(
-      '📢 [WebSocket] Emitiendo eventos a los demás participantes del grupo...',
-    );
-
-    // Si se transfirió la propiedad, obtener información del nuevo propietario
     let newOwnerName: string | undefined = undefined;
-    if (isCreator && newCreatorId) {
+    if (isOriginalCreator && newCreatorId) {
       const newOwner = await this.dynamoDBService.getUser(newCreatorId);
       newOwnerName = newOwner?.name || 'Usuario';
-      console.log(
-        `👑 [WebSocket] Nuevo propietario del grupo: ${newOwnerName} (${newCreatorId})`,
-      );
     }
 
-    // Emitir a cada participante restante individualmente
     for (const participant of participantsAfter) {
       const participantUserId = participant.userId;
-      console.log(
-        `📢 [WebSocket] Enviando eventos a participante: ${participantUserId}`,
-      );
 
-      // Evento específico de que un usuario salió
       this.server
         .to(`user:${participantUserId}`)
         .emit('user_left_group', {
           ...leaveEventData,
           leftBy: userName,
-          ownershipTransferred: isCreator && newCreatorId ? true : false,
+          ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
           newOwnerId: newCreatorId || undefined,
           newOwnerName: newOwnerName,
         });
 
-      // Evento de actualización de participantes
       this.server
         .to(`user:${participantUserId}`)
         .emit('group_participants_updated', {
@@ -681,13 +571,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
     }
 
-    // Emitir al room del grupo (para usuarios conectados)
     this.server
       .to(`conversation:${conversationId}`)
       .emit('user_left_group', {
         ...leaveEventData,
         leftBy: userName,
-        ownershipTransferred: isCreator && newCreatorId ? true : false,
+        ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
         newOwnerId: newCreatorId || undefined,
         newOwnerName: newOwnerName,
       });
@@ -698,18 +587,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         newOwnerName: newOwnerName,
       });
 
-    console.log('🎉 [WebSocket] Proceso de salir del grupo completado');
-    console.log('📋 [WebSocket] RESUMEN FINAL:', {
-      conversationId,
-      conversationName: conversation.name,
-      userId,
-      userName,
-      participantsBefore: participantsBefore.length,
-      participantsAfter: participantsAfter.length,
-      finalParticipantCount: participantCount,
-    });
-
-    // Confirmar al cliente que salió exitosamente
     client.emit('leave_group_success', {
       conversationId,
       conversationName: conversation.name,

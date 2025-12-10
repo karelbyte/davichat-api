@@ -24,16 +24,6 @@ export class DynamoDBService implements OnModuleInit {
   constructor(private configService: ConfigService) {
     this.dynamoClient = new DynamoDBClient({
       region: this.configService.get('app.dynamodb.region') || 'us-east-1',
-      /*...(this.configService.get('app.nodeEnv') !== 'production'
-        ? {
-            credentials: {
-              accessKeyId:
-                this.configService.get('app.dynamodb.accessKeyId') || '',
-              secretAccessKey:
-                this.configService.get('app.dynamodb.secretAccessKey') || '',
-            },
-          }
-        : {}),*/
       endpoint: this.configService.get('app.dynamodb.endpoint'),
     });
     this.client = DynamoDBDocumentClient.from(this.dynamoClient);
@@ -41,22 +31,9 @@ export class DynamoDBService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      const region =
-        this.configService.get('app.dynamodb.region') || 'us-east-1';
-      const endpoint = this.configService.get('app.dynamodb.endpoint');
-      const accessKeyId = this.configService.get('app.dynamodb.accessKeyId');
-
       await this.createTablesIfNotExist();
     } catch (error) {
-      console.error('❌ Error conectando a DynamoDB:');
-      console.error(`   Tipo: ${error.constructor.name}`);
-      console.error(`   Mensaje: ${error.message}`);
-      console.error(
-        `   Región: ${this.configService.get('app.dynamodb.region')}`,
-      );
-      console.error(
-        `   Endpoint: ${this.configService.get('app.dynamodb.endpoint')}`,
-      );
+      console.error('Error conectando a DynamoDB:', error);
       throw error;
     }
   }
@@ -128,7 +105,7 @@ export class DynamoDBService implements OnModuleInit {
         await this.dynamoClient.send(createCommand);
       } else {
         console.error(
-          `      ❌ Error verificando tabla ${tableConfig.name}:`,
+          `Error verificando tabla ${tableConfig.name}:`,
           error.message,
         );
         throw error;
@@ -158,13 +135,11 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async updateUser(userId: string, updateData: any): Promise<void> {
-    // Obtener el usuario actual primero
     const currentUser = await this.getUser(userId);
     if (!currentUser) {
       throw new Error('Usuario no encontrado');
     }
 
-    // Crear el item actualizado manteniendo todos los campos existentes
     const updatedUser = {
       ...currentUser,
       ...updateData,
@@ -257,14 +232,13 @@ export class DynamoDBService implements OnModuleInit {
 
     try {
       do {
-        // Escanear mensajes de esta conversación específica
         const scanCommand = new ScanCommand({
           TableName: 'messages',
           FilterExpression: 'conversationId = :conversationId',
           ExpressionAttributeValues: {
             ':conversationId': conversationId,
           },
-          Limit: 25, // Límite de DynamoDB para BatchWrite
+          Limit: 25,
           ExclusiveStartKey: lastEvaluatedKey,
         });
 
@@ -273,7 +247,6 @@ export class DynamoDBService implements OnModuleInit {
         lastEvaluatedKey = result.LastEvaluatedKey;
 
         if (items.length > 0) {
-          // Crear requests de eliminación para este lote
           const deleteRequests = items.map((message) => ({
             DeleteRequest: {
               Key: {
@@ -283,7 +256,6 @@ export class DynamoDBService implements OnModuleInit {
             },
           }));
 
-          // Ejecutar eliminación en lote
           const batchWriteCommand = new BatchWriteCommand({
             RequestItems: {
               messages: deleteRequests,
@@ -319,14 +291,11 @@ export class DynamoDBService implements OnModuleInit {
           userId,
         },
         UpdateExpression:
-          'SET unreadCount = :unreadCount, lastReadAt = :lastReadAt, isActive = :isActive, updatedAt = :updatedAt',
+          'SET unreadCount = :unreadCount, lastReadAt = :lastReadAt, isActive = :isActive, updatedAt = :updatedAt REMOVE deletedAt',
         ExpressionAttributeValues: {
           ':unreadCount': participantData.unreadCount || 0,
           ':lastReadAt': participantData.lastReadAt || new Date().toISOString(),
-          ':isActive':
-            participantData.isActive !== undefined
-              ? participantData.isActive
-              : true,
+          ':isActive': true,
           ':updatedAt': new Date().toISOString(),
         },
       });
@@ -340,6 +309,7 @@ export class DynamoDBService implements OnModuleInit {
         conversationId,
         userId,
         ...participantData,
+        isActive: true,
         joinedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -367,7 +337,6 @@ export class DynamoDBService implements OnModuleInit {
       const result = await this.client.send(command);
       return result.Item || null;
     } catch (error) {
-      console.error('[DynamoDB] Error al verificar participante:', error);
       return null;
     }
   }
@@ -376,15 +345,21 @@ export class DynamoDBService implements OnModuleInit {
     const command = new QueryCommand({
       TableName: 'conversation_participants',
       KeyConditionExpression: 'conversationId = :conversationId',
+      FilterExpression: 'isActive = :isActive OR attribute_not_exists(isActive)',
       ExpressionAttributeValues: {
         ':conversationId': conversationId,
+        ':isActive': true,
       },
+      ConsistentRead: true,
     });
 
     try {
       const result = await this.client.send(command);
       const participants = result.Items || [];
-      return participants;
+      const activeParticipants = participants.filter(
+        (p) => p.isActive !== false && !p.deletedAt,
+      );
+      return activeParticipants;
     } catch (error) {
       console.error('[DynamoDB] Error al obtener participantes:', error);
       return [];
@@ -395,27 +370,32 @@ export class DynamoDBService implements OnModuleInit {
     conversationId: string,
     userId: string,
   ): Promise<void> {
-    // Verificar que el participante existe
-    const existingParticipant = await this.getParticipant(
-      conversationId,
-      userId,
-    );
-    if (!existingParticipant) {
-      throw new Error('Participante no encontrado en la conversación');
-    }
-
-    const command = new DeleteCommand({
+    const command = new UpdateCommand({
       TableName: 'conversation_participants',
       Key: {
         conversationId,
         userId,
       },
+      UpdateExpression:
+        'SET isActive = :isActive, deletedAt = :deletedAt, updatedAt = :updatedAt',
+      ExpressionAttributeValues: {
+        ':isActive': false,
+        ':deletedAt': new Date().toISOString(),
+        ':updatedAt': new Date().toISOString(),
+      },
+      ConditionExpression: 'attribute_exists(conversationId)',
     });
 
     try {
       await this.client.send(command);
     } catch (error) {
-      console.error('[DynamoDB] Error al remover participante:', error);
+      if (error.name === 'ConditionalCheckFailedException') {
+        return;
+      }
+      console.error(
+        `[DynamoDB] Error al marcar participante como inactivo:`,
+        error,
+      );
       throw error;
     }
   }
@@ -471,8 +451,10 @@ export class DynamoDBService implements OnModuleInit {
         TableName: 'conversation_participants',
         IndexName: 'userId-index',
         KeyConditionExpression: 'userId = :userId',
+        FilterExpression: 'isActive = :isActive OR attribute_not_exists(isActive)',
         ExpressionAttributeValues: {
           ':userId': userId,
+          ':isActive': true,
         },
       });
       const result = await this.client.send(command);
@@ -482,21 +464,64 @@ export class DynamoDBService implements OnModuleInit {
         const conversation = await this.getConversation(
           participant.conversationId,
         );
-        if (conversation) {
-          const activeParticipants = await this.getConversationParticipants(
-            conversation.id,
-          );
-          const activeParticipantIds = activeParticipants.map((p) => p.userId);
-          const updatedConversation = {
-            ...conversation,
-            participants: activeParticipantIds, // ← Usar participantes activos
-            unreadCount: participant.unreadCount || 0, // ← Contador de no leídos
-            lastReadAt: participant.lastReadAt || null, // ← Última vez que leyó
-          };
-
-          conversations.push(updatedConversation);
+        if (!conversation) {
+          try {
+            const deleteCommand = new DeleteCommand({
+              TableName: 'conversation_participants',
+              Key: {
+                conversationId: participant.conversationId,
+                userId: participant.userId,
+              },
+            });
+            await this.client.send(deleteCommand);
+          } catch (error) {
+            // Ignorar errores al limpiar registros huérfanos
+          }
+          continue;
         }
+
+        const directParticipantCheck = await this.getParticipant(
+          conversation.id,
+          userId,
+        );
+        
+        const activeParticipants = await this.getConversationParticipants(
+          conversation.id,
+        );
+        const activeParticipantIds = activeParticipants.map((p) => p.userId);
+
+        if (!activeParticipantIds.includes(userId)) {
+          try {
+            const deleteCommand = new DeleteCommand({
+              TableName: 'conversation_participants',
+              Key: {
+                conversationId: conversation.id,
+                userId: userId,
+              },
+            });
+            await this.client.send(deleteCommand);
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            const verifyDeleted = await this.getParticipant(conversation.id, userId);
+            if (verifyDeleted) {
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              await this.client.send(deleteCommand);
+            }
+          } catch (error) {
+            // Ignorar errores
+          }
+          continue;
+        }
+
+        const updatedConversation = {
+          ...conversation,
+          participants: activeParticipantIds,
+          unreadCount: participant.unreadCount || 0,
+          lastReadAt: participant.lastReadAt || null,
+        };
+
+        conversations.push(updatedConversation);
       }
+
       return conversations;
     } catch (error) {
       console.error(
@@ -518,21 +543,51 @@ export class DynamoDBService implements OnModuleInit {
         const conversation = await this.getConversation(
           participant.conversationId,
         );
-        if (conversation) {
-          const activeParticipants = await this.getConversationParticipants(
-            conversation.id,
-          );
-          const activeParticipantIds = activeParticipants.map((p) => p.userId);
-
-          const updatedConversation = {
-            ...conversation,
-            participants: activeParticipantIds, // ← Usar participantes activos
-            unreadCount: participant.unreadCount || 0, // ← Contador de no leídos
-            lastReadAt: participant.lastReadAt || null, // ← Última vez que leyó
-          };
-
-          conversations.push(updatedConversation);
+        if (!conversation) {
+          try {
+            const deleteCommand = new DeleteCommand({
+              TableName: 'conversation_participants',
+              Key: {
+                conversationId: participant.conversationId,
+                userId: participant.userId,
+              },
+            });
+            await this.client.send(deleteCommand);
+          } catch (error) {
+            // Ignorar errores
+          }
+          continue;
         }
+
+        const activeParticipants = await this.getConversationParticipants(
+          conversation.id,
+        );
+        const activeParticipantIds = activeParticipants.map((p) => p.userId);
+
+        if (!activeParticipantIds.includes(userId)) {
+          try {
+            const deleteCommand = new DeleteCommand({
+              TableName: 'conversation_participants',
+              Key: {
+                conversationId: conversation.id,
+                userId: userId,
+              },
+            });
+            await this.client.send(deleteCommand);
+          } catch (error) {
+            // Ignorar errores
+          }
+          continue;
+        }
+
+        const updatedConversation = {
+          ...conversation,
+          participants: activeParticipantIds,
+          unreadCount: participant.unreadCount || 0,
+          lastReadAt: participant.lastReadAt || null,
+        };
+
+        conversations.push(updatedConversation);
       }
       return conversations;
     }
@@ -590,12 +645,7 @@ export class DynamoDBService implements OnModuleInit {
   }
 
   async deleteMessage(messageId: string): Promise<void> {
-    console.log(
-      `DynamoDB Write - Table: messages - Operation: DELETE - Region: ${this.configService.get('app.dynamodb.region')}`,
-    );
-
     try {
-      // Usar ScanCommand para encontrar el mensaje por id
       const scanCommand = new ScanCommand({
         TableName: 'messages',
         FilterExpression: 'id = :messageId',
@@ -612,7 +662,6 @@ export class DynamoDBService implements OnModuleInit {
 
       const message = result.Items[0];
 
-      // Eliminar usando ambas claves
       const deleteCommand = new DeleteCommand({
         TableName: 'messages',
         Key: {
@@ -711,10 +760,9 @@ export class DynamoDBService implements OnModuleInit {
 
     try {
       do {
-        // Escanear mensajes en lotes
         const scanCommand = new ScanCommand({
           TableName: 'messages',
-          Limit: 25, // Límite de DynamoDB para BatchWrite
+          Limit: 25,
           ExclusiveStartKey: lastEvaluatedKey,
         });
 
@@ -723,7 +771,6 @@ export class DynamoDBService implements OnModuleInit {
         lastEvaluatedKey = result.LastEvaluatedKey;
 
         if (items.length > 0) {
-          // Crear requests de eliminación para este lote
           const deleteRequests = items.map((message) => ({
             DeleteRequest: {
               Key: {
@@ -733,7 +780,6 @@ export class DynamoDBService implements OnModuleInit {
             },
           }));
 
-          // Ejecutar eliminación en lote
           const batchWriteCommand = new BatchWriteCommand({
             RequestItems: {
               messages: deleteRequests,
@@ -758,7 +804,6 @@ export class DynamoDBService implements OnModuleInit {
 
     try {
       do {
-        // Escanear mensajes en lotes del tamaño especificado
         const scanCommand = new ScanCommand({
           TableName: 'messages',
           Limit: batchSize,
@@ -770,7 +815,6 @@ export class DynamoDBService implements OnModuleInit {
         lastEvaluatedKey = result.LastEvaluatedKey;
 
         if (items.length > 0) {
-          // Crear requests de eliminación para este lote
           const deleteRequests = items.map((message) => ({
             DeleteRequest: {
               Key: {
@@ -780,7 +824,6 @@ export class DynamoDBService implements OnModuleInit {
             },
           }));
 
-          // Ejecutar eliminación en lote
           const batchWriteCommand = new BatchWriteCommand({
             RequestItems: {
               messages: deleteRequests,
@@ -790,7 +833,6 @@ export class DynamoDBService implements OnModuleInit {
           await this.client.send(batchWriteCommand);
           totalDeleted += items.length;
 
-          // Pequeña pausa entre lotes para evitar throttling
           if (lastEvaluatedKey) {
             await new Promise((resolve) => setTimeout(resolve, 100));
           }

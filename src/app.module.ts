@@ -17,13 +17,6 @@ import appConfig from './configs/app.config';
   ],
   controllers: [AppController],
   providers: [
-    {
-      provide: 'INIT_LOGGER',
-      useFactory: () => {
-        console.log('🔧 Inicializando módulo AppModule...');
-        return 'AppModule initialized';
-      },
-    },
     AppService,
     RedisService,
     DynamoDBService,

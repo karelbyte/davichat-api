@@ -125,19 +125,15 @@ export class FileStorageService {
     fileType: string;
     thumbnailUrl?: string;
   }> {
-    // Usar el nombre original del archivo, sanitizado
     let fileName = file.originalname;
 
-    // Sanitizar el nombre del archivo: eliminar caracteres peligrosos
     fileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
 
-    // Si el nombre está vacío después de sanitizar, usar un nombre por defecto
     if (!fileName || fileName.trim() === '') {
       const fileExtension = path.extname(file.originalname) || '.bin';
       fileName = `file_${Date.now()}${fileExtension}`;
     }
 
-    // Verificar si el archivo ya existe y agregar timestamp solo si hay colisión
     let finalFileName = fileName;
     if (this.storageType === 'local') {
       const filePath = path.join(this.localPath, fileName);
@@ -155,9 +151,7 @@ export class FileStorageService {
         const baseName = path.basename(fileName, fileExtension);
         finalFileName = `${baseName}-${unixTimestamp}${fileExtension}`;
       }
-    }
-    // Para AWS S3, no podemos verificar fácilmente, así que siempre agregamos timestamp
-    else if (this.storageType === 'aws') {
+    } else if (this.storageType === 'aws') {
       const unixTimestamp = Math.floor(Date.now() / 1000);
       const fileExtension = path.extname(fileName);
       const baseName = path.basename(fileName, fileExtension);
@@ -346,7 +340,6 @@ export class FileStorageService {
   }> {
     const userAvatarDir = path.join(this.localPath, 'avatars', userId);
 
-    // Crear directorio del usuario si no existe
     if (!fs.existsSync(userAvatarDir)) {
       fs.mkdirSync(userAvatarDir, { recursive: true });
     }
@@ -418,7 +411,6 @@ export class FileStorageService {
     try {
       const userAvatarDir = path.join(this.ebsMountPath, 'avatars', userId);
 
-      // Crear directorio del usuario si no existe
       if (!fs.existsSync(userAvatarDir)) {
         fs.mkdirSync(userAvatarDir, { recursive: true });
       }

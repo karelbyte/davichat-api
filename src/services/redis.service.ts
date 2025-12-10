@@ -23,41 +23,9 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
 
   async onModuleInit() {
     try {
-      const redisUrl = this.configService.get('app.redis.url');
-      const redisHost = this.configService.get('app.redis.host');
-      const redisPort = this.configService.get('app.redis.port');
-
-      console.log('🔄 Intentando conectar a Redis...');
-      console.log(`   URL: ${redisUrl || 'No configurada'}`);
-      console.log(`   Host: ${redisHost || 'No configurado'}`);
-      console.log(`   Puerto: ${redisPort || 'No configurado'}`);
-      console.log(
-        `   TLS: ${this.configService.get('app.nodeEnv') === 'production' ? 'Habilitado' : 'Deshabilitado'}`,
-      );
-
       await this.redisClient.connect();
-
-      console.log('✅ Conectado a servidor Redis');
-      console.log(`   URL: ${redisUrl || 'No configurada'}`);
-      console.log(`   Host: ${redisHost || 'No configurado'}`);
-      console.log(`   Puerto: ${redisPort || 'No configurado'}`);
     } catch (error) {
-      console.error('❌ Error conectando a Redis:');
-      console.error(`   Tipo: ${error.constructor.name}`);
-      console.error(`   Mensaje: ${error.message}`);
-      console.error(`   URL: ${this.configService.get('app.redis.url')}`);
-
-      // No lanzar error para evitar que la aplicación se detenga
-      console.warn(
-        '⚠️ Continuando sin Redis - algunas funcionalidades pueden no estar disponibles',
-      );
-      console.warn(
-        '   Para habilitar Redis, configura las variables de entorno:',
-      );
-      console.warn('   - REDIS_URL');
-      console.warn('   - REDIS_HOST');
-      console.warn('   - REDIS_PORT');
-      console.warn('   - REDIS_PASSWORD (opcional)');
+      console.error('Error conectando a Redis:', error);
     }
   }
 
@@ -66,7 +34,6 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       await this.redisClient.set(`user:${userId}`, JSON.stringify(userData));
       await this.redisClient.expire(`user:${userId}`, 3600);
     } catch (error) {
-      console.warn(`⚠️ Error en setUser: ${error.message}`);
     }
   }
 
@@ -75,7 +42,6 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       const userData = await this.redisClient.get(`user:${userId}`);
       return userData ? JSON.parse(userData) : null;
     } catch (error) {
-      console.warn(`⚠️ Error en getUser: ${error.message}`);
       return null;
     }
   }
@@ -84,7 +50,6 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
     try {
       await this.redisClient.sAdd('online_users', userId);
     } catch (error) {
-      console.warn(`⚠️ Error en setUserOnline: ${error.message}`);
     }
   }
 
@@ -92,7 +57,6 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
     try {
       await this.redisClient.sRem('online_users', userId);
     } catch (error) {
-      console.warn(`⚠️ Error en setUserOffline: ${error.message}`);
     }
   }
 
@@ -100,7 +64,6 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
     try {
       return await this.redisClient.sMembers('online_users');
     } catch (error) {
-      console.warn(`⚠️ Error en getOnlineUsers: ${error.message}`);
       return [];
     }
   }
@@ -110,7 +73,6 @@ export class RedisService implements OnModuleDestroy, OnModuleInit {
       await this.redisClient.del(`user:${userId}`);
       await this.redisClient.sRem('online_users', userId);
     } catch (error) {
-      console.warn(`⚠️ Error en deleteUser: ${error.message}`);
     }
   }
 
