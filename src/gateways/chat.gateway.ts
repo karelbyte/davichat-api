@@ -148,6 +148,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (participant.userId === senderId) continue;
 
       const isOnline = onlineUsers.includes(participant.userId);
+      const currentUnreadCount = participant.unreadCount || 0;
+
+      await this.dynamoDBService.updateParticipantReadStatus(
+        conversationId,
+        participant.userId,
+        currentUnreadCount + 1,
+        participant.lastReadAt || new Date(0).toISOString(),
+      );
 
       if (isOnline) {
         const unreadEvent = {
@@ -167,14 +175,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               : 'unread_message_group',
             unreadEvent,
           );
-      } else {
-        const currentUnreadCount = participant.unreadCount || 0;
-        await this.dynamoDBService.updateParticipantReadStatus(
-          conversationId,
-          participant.userId,
-          currentUnreadCount + 1,
-          participant.lastReadAt || new Date(0).toISOString(),
-        );
       }
     }
   }

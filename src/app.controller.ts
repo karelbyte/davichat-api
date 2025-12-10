@@ -452,6 +452,14 @@ export class AppController {
       if (participant.userId === body.senderId) continue;
 
       const isOnline = onlineUsers.includes(participant.userId);
+      const currentUnreadCount = participant.unreadCount || 0;
+
+      await this.dynamoDBService.updateParticipantReadStatus(
+        body.conversationId,
+        participant.userId,
+        currentUnreadCount + 1,
+        participant.lastReadAt || new Date(0).toISOString(),
+      );
 
       if (isOnline) {
         const unreadEvent = {
@@ -459,7 +467,7 @@ export class AppController {
           conversationId: body.conversationId,
           senderId: body.senderId,
           messageId,
-          content: fileData.fileName, // Use filename for notification
+          content: fileData.fileName,
           timestamp,
         };
 
@@ -471,14 +479,6 @@ export class AppController {
               : 'unread_message_group',
             unreadEvent,
           );
-      } else {
-        const currentUnreadCount = participant.unreadCount || 0;
-        await this.dynamoDBService.updateParticipantReadStatus(
-          body.conversationId,
-          participant.userId,
-          currentUnreadCount + 1,
-          participant.lastReadAt || new Date(0).toISOString(),
-        );
       }
     }
 
