@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   Res,
   UseInterceptors,
   UploadedFile,
@@ -166,6 +167,8 @@ export class AppController {
   async removeParticipant(
     @Param('id') conversationId: string,
     @Param('userId') userId: string,
+    @Body() body?: { removedBy?: string },
+    @Query('removedBy') removedByQuery?: string,
   ) {
     const conversation =
       await this.dynamoDBService.getConversation(conversationId);
@@ -189,6 +192,11 @@ export class AppController {
 
     const participantsBefore =
       await this.dynamoDBService.getConversationParticipants(conversationId);
+
+    // Determinar quién está eliminando: si removedBy está en el body o query, es un admin eliminando a otro usuario
+    // Si no, es el mismo usuario saliendo (auto-salida)
+    const removedBy = body?.removedBy || removedByQuery || userId;
+    const isSelfRemoval = removedBy === userId;
 
     const originalCreatedBy = conversation.createdBy;
     const isOriginalCreator = originalCreatedBy === userId;
@@ -252,11 +260,23 @@ export class AppController {
 
         await this.dynamoDBService.deleteConversation(conversationId);
 
-        this.chatGateway.server.emit('group_deleted', {
-          conversationId,
-          conversationName: conversation.name,
-          timestamp: new Date().toISOString(),
-        });
+        // Obtener los participantes activos antes de que el último saliera
+        // (excluyendo al usuario que acaba de salir)
+        const activeParticipantsBeforeDeletion = participantsBefore.filter(
+          (p) => p.userId !== userId,
+        );
+
+        // Enviar notificación solo a los participantes activos que quedaban
+        // (no al usuario que ya salió)
+        for (const participant of activeParticipantsBeforeDeletion) {
+          this.chatGateway.server
+            .to(`user:${participant.userId}`)
+            .emit('group_deleted', {
+              conversationId,
+              conversationName: conversation.name,
+              timestamp: new Date().toISOString(),
+            });
+        }
 
         return {
           success: true,
@@ -279,6 +299,10 @@ export class AppController {
     const user = await this.dynamoDBService.getUser(userId);
     const userName = user?.name || 'Usuario';
 
+    // Obtener información del usuario que está eliminando (removedBy)
+    const removedByUser = await this.dynamoDBService.getUser(removedBy);
+    const removedByName = removedByUser?.name || 'Usuario';
+
     const groupUpdateEventData = {
       conversationId,
       conversationName: conversation.name,
@@ -287,8 +311,10 @@ export class AppController {
       updatedAt: new Date().toISOString(),
       action: 'remove' as const,
       affectedUsers: [userId],
-      updatedBy: userId,
-      leftBy: userName,
+      updatedBy: removedBy, // Quién está haciendo la eliminación (admin o el mismo usuario)
+      removedBy: removedBy, // Quién está eliminando
+      removedByName: removedByName, // Nombre de quien está eliminando
+      leftBy: isSelfRemoval ? userName : removedByName, // Si es auto-salida, es userName; si no, es removedByName
       ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
       newOwnerId: newCreatorId || undefined,
     };
@@ -299,6 +325,22 @@ export class AppController {
       newOwnerName = newOwner?.name || 'Usuario';
     }
 
+    // Notificar al usuario eliminado (B) que fue eliminado del grupo
+    if (!isSelfRemoval) {
+      this.chatGateway.server
+        .to(`user:${userId}`)
+        .emit('user_removed_from_group', {
+          conversationId,
+          conversationName: conversation.name,
+          userId,
+          userName,
+          removedBy,
+          removedByName,
+          timestamp: new Date().toISOString(),
+        });
+    }
+
+    // Notificar a los participantes que quedan en el grupo
     for (const participant of updatedParticipants) {
       this.chatGateway.server
         .to(`user:${participant.userId}`)
@@ -307,7 +349,9 @@ export class AppController {
           conversationName: conversation.name,
           userId,
           userName,
-          leftBy: userName,
+          leftBy: isSelfRemoval ? userName : removedByName,
+          removedBy: isSelfRemoval ? undefined : removedBy,
+          removedByName: isSelfRemoval ? undefined : removedByName,
           timestamp: new Date().toISOString(),
           ownershipTransferred:
             isOriginalCreator && newCreatorId ? true : false,
@@ -329,7 +373,9 @@ export class AppController {
         conversationName: conversation.name,
         userId,
         userName,
-        leftBy: userName,
+        leftBy: isSelfRemoval ? userName : removedByName,
+        removedBy: isSelfRemoval ? undefined : removedBy,
+        removedByName: isSelfRemoval ? undefined : removedByName,
         timestamp: new Date().toISOString(),
         ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
         newOwnerId: newCreatorId || undefined,

@@ -331,9 +331,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         .emit('user_added_to_group', eventData);
     }
 
-    this.server
-      .to(`user:${userId}`)
-      .emit('user_added_to_group', eventData);
+    this.server.to(`user:${userId}`).emit('user_added_to_group', eventData);
     const groupUpdateEventData = {
       conversationId,
       conversationName: conversation.name,
@@ -413,8 +411,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.dynamoDBService.removeParticipant(conversationId, userId);
     } catch (error) {
       if (error.message && error.message.includes('no encontrado')) {
-        const verifyParticipant =
-          await this.dynamoDBService.getParticipant(conversationId, userId);
+        const verifyParticipant = await this.dynamoDBService.getParticipant(
+          conversationId,
+          userId,
+        );
         if (!verifyParticipant) {
         } else {
           console.error('Error inesperado:', error);
@@ -433,7 +433,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     await new Promise((resolve) => setTimeout(resolve, 500));
-    
+
     const verifyParticipantStillExists =
       await this.dynamoDBService.getParticipant(conversationId, userId);
     if (verifyParticipantStillExists) {
@@ -444,7 +444,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         console.error('Error en eliminación forzada:', error);
       }
     }
-    
+
     const participantsAfter =
       await this.dynamoDBService.getConversationParticipants(conversationId);
     const updatedParticipantIds = participantsAfter.map((p) => p.userId);
@@ -468,7 +468,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (participantCount === 0) {
       try {
         const remainingParticipants =
-          await this.dynamoDBService.getConversationParticipants(conversationId);
+          await this.dynamoDBService.getConversationParticipants(
+            conversationId,
+          );
         for (const participant of remainingParticipants) {
           try {
             await this.dynamoDBService.removeParticipant(
@@ -484,9 +486,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
 
         const deletedMessagesCount =
-          await this.dynamoDBService.deleteConversationMessages(
-            conversationId,
-          );
+          await this.dynamoDBService.deleteConversationMessages(conversationId);
 
         await this.dynamoDBService.deleteConversation(conversationId);
 
@@ -498,11 +498,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           deletedMessagesCount,
         });
 
-        this.server.emit('group_deleted', {
-          conversationId,
-          conversationName: conversation.name,
-          timestamp: new Date().toISOString(),
-        });
+        const activeParticipantsBeforeDeletion = participantsBefore.filter(
+          (p) => p.userId !== userId,
+        );
+
+        for (const participant of activeParticipantsBeforeDeletion) {
+          this.server.to(`user:${participant.userId}`).emit('group_deleted', {
+            conversationId,
+            conversationName: conversation.name,
+            timestamp: new Date().toISOString(),
+          });
+        }
 
         return;
       } catch (error) {
@@ -553,15 +559,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     for (const participant of participantsAfter) {
       const participantUserId = participant.userId;
 
-      this.server
-        .to(`user:${participantUserId}`)
-        .emit('user_left_group', {
-          ...leaveEventData,
-          leftBy: userName,
-          ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
-          newOwnerId: newCreatorId || undefined,
-          newOwnerName: newOwnerName,
-        });
+      this.server.to(`user:${participantUserId}`).emit('user_left_group', {
+        ...leaveEventData,
+        leftBy: userName,
+        ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
+        newOwnerId: newCreatorId || undefined,
+        newOwnerName: newOwnerName,
+      });
 
       this.server
         .to(`user:${participantUserId}`)
@@ -571,15 +575,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
     }
 
-    this.server
-      .to(`conversation:${conversationId}`)
-      .emit('user_left_group', {
-        ...leaveEventData,
-        leftBy: userName,
-        ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
-        newOwnerId: newCreatorId || undefined,
-        newOwnerName: newOwnerName,
-      });
+    this.server.to(`conversation:${conversationId}`).emit('user_left_group', {
+      ...leaveEventData,
+      leftBy: userName,
+      ownershipTransferred: isOriginalCreator && newCreatorId ? true : false,
+      newOwnerId: newCreatorId || undefined,
+      newOwnerName: newOwnerName,
+    });
     this.server
       .to(`conversation:${conversationId}`)
       .emit('group_participants_updated', {
